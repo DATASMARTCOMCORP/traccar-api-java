@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE properties SYSTEM 'http://java.sun.com/dtd/properties.dtd'>
+<properties>
+
+    <!-- Configuração básica para dispositivos móveis (HTTP/API) -->
+    <entry key='web.enable'>true</entry>
+    <entry key='web.port'>8082</entry>  <!-- Porta padrão do SIR Web -->
+    <entry key='web.address'>0.0.0.0</entry>  <!-- Permite conexões de qualquer IP local -->
+
+    <!-- Habilita a API REST para o SIR Client -->
+    <entry key='web.application'>/opt/sir/sir-web.war</entry>
+    <entry key='server.timeout'>120</entry>
+
+    <entry key='web.path'>./traccar-web/simple</entry>
+    <entry key='web.debug'>true</entry>
+    <entry key='web.console'>true</entry>
+
+    <entry key='geocoder.type'>pluscodes</entry>
+
+    <entry key='media.path'>./target/media</entry>
+
+    <entry key='logger.console'>true</entry>
+    <entry key='logger.queries'>false</entry>
+    <entry key='logger.fullStackTraces'>true</entry>
+
+    <entry key='mail.debug'>true</entry>
+
+    <entry key='database.driver'>org.postgresql.Driver</entry>
+    <entry key='database.url'>jdbc:postgresql://3.213.133.219:5432/traccar-dev</entry>
+    <entry key='database.user'>root</entry>
+    <entry key='database.password'>A1K1UYbtdt2n8llCTN0n</entry>
+
+    <entry key='server.instantAcknowledgement'>true</entry>
+    <entry key='server.buffering.threshold'>5000</entry>
+
+    <entry key='atrack.custom'>true</entry>
+    <entry key='intellitrac.port'>6037</entry>
+
+    <entry key='osmand.port'>5055</entry>
+    <entry key='suntech.port'>47762</entry>
+    <entry key='suntech_udp.port'>47763</entry>
+    
+</properties>

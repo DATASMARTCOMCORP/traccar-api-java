@@ -328,4 +328,37 @@ public class SuntechProtocolDecoderTest extends ProtocolTest {
 
     }
 
+    @Test
+    public void testDecodeTwosComplement() throws Exception {
+
+        var decoder = inject(new SuntechProtocolDecoder(null));
+
+        // Binary Suntech message with Two's Complement Negative Latitude (-10.0)
+        // 81 (type) 0012 (length 18) 1051134087 (id) 000830 (mask - bits 4, 5, 11)
+        // Time: 25 03 19 13 30 00 (Hex: 1903130d1e00)
+        // Latitude: ff 67 69 80 (-10,000,000 / 1M = -10.0)
+        verifyPosition(decoder, binary(
+                "81001210511340870008301903130d1e00ff676980"));
+    }
+
+    @Test
+    public void testDecodeBrazilianCoordinates() throws Exception {
+
+        var decoder = inject(new SuntechProtocolDecoder(null));
+
+        // São Paulo: -23.5505, -46.6333
+        // Two's Complement: fe98a6dc, fd386faa
+        // Signed Magnitude: 81675924, 82c79054
+        // Mask: 001830 (Bits 4, 5, 11, 12)
+        // Time: 25 03 19 13 30 00 (Hex: 1903130d1e00)
+
+        // Test Two's Complement
+        verifyPosition(decoder, binary(
+                "81001610511340870018301903130d1e00fe98a6dcfd386faa"));
+
+        // Test Signed Magnitude
+        verifyPosition(decoder, binary(
+                "81001610511340870018301903130d1e008167592482c79054"));
+    }
+
 }

@@ -34,8 +34,8 @@ public class PortConfigSuffix extends ConfigSuffix<Integer> {
         PORTS.put("enfora", 5008);
         PORTS.put("meiligao", 5009);
         PORTS.put("trv", 5010);
-        PORTS.put("suntech", 5011);
-        PORTS.put("progress", 5012);
+        PORTS.put("suntech", 47762); //5011 (default) - 47762 (DataSmartCom)
+        PORTS.put("suntech_udp", 47763); //5011 (default) - 47762 (DataSmartCom)        PORTS.put("progress", 5012);
         PORTS.put("h02", 5013);
         PORTS.put("jt600", 5014);
         PORTS.put("huabao", 5015);
