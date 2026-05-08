@@ -21,14 +21,10 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import org.traccar.BaseProtocolDecoder;
 import org.traccar.config.Keys;
-import org.traccar.helper.BcdUtil;
-import org.traccar.helper.BufferUtil;
+import org.traccar.helper.*;
 import org.traccar.helper.model.AttributeUtil;
 import org.traccar.session.DeviceSession;
 import org.traccar.Protocol;
-import org.traccar.helper.BitUtil;
-import org.traccar.helper.DateBuilder;
-import org.traccar.helper.UnitsConverter;
 import org.traccar.model.CellTower;
 import org.traccar.model.Network;
 import org.traccar.model.Position;
@@ -786,11 +782,23 @@ public class SuntechProtocolDecoder extends BaseProtocolDecoder {
         }
 
         if (BitUtil.check(mask, 11)) {
-            position.setLatitude(BufferUtil.readSignedMagnitudeInt(buf) / 1000000.0);
+            int readerIndex = buf.readerIndex();
+            try {
+                position.setLatitude(buf.readInt() / 1000000.0);
+            } catch (IllegalArgumentException e) {
+                buf.readerIndex(readerIndex);
+                position.setLatitude(BufferUtil.readSignedMagnitudeInt(buf) / 1000000.0);
+            }
         }
 
         if (BitUtil.check(mask, 12)) {
-            position.setLongitude(BufferUtil.readSignedMagnitudeInt(buf) / 1000000.0);
+            int readerIndex = buf.readerIndex();
+            try {
+                position.setLongitude(buf.readInt() / 1000000.0);
+            } catch (IllegalArgumentException e) {
+                buf.readerIndex(readerIndex);
+                position.setLongitude(BufferUtil.readSignedMagnitudeInt(buf) / 1000000.0);
+            }
         }
 
         if (BitUtil.check(mask, 13)) {
