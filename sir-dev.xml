@@ -23,7 +23,19 @@
     <entry key='logger.queries'>false</entry>
     <entry key='logger.fullStackTraces'>true</entry>
 
-    <entry key='mail.debug'>true</entry>
+    <!-- Sending emails doesn't work when mail.debug is true -->
+    <!-- <entry key='mail.debug'>true</entry>  -->
+    <entry key='mail.debug'>false</entry> 
+    <entry key='mail.smtp.host'>email-ssl.com.br</entry>
+    <entry key='mail.smtp.port'>587</entry>
+    <entry key='mail.transport.protocol'>smtp</entry>
+    <entry key='mail.smtp.starttls.enable'>true</entry>
+    <entry key='mail.smtp.starttls.required'>true</entry>
+    <entry key='mail.smtp.auth'>true</entry>
+    <entry key='mail.smtp.username'>atendimento@cetsp-digital.com.br</entry>
+    <entry key='mail.smtp.password'>YM$R7U}aRa</entry>
+    <entry key='mail.smtp.from'>atendimento@cetsp-digital.com.br</entry>
+    <entry key='mail.smtp.fromName'>Traccar</entry>
 
     <entry key='database.driver'>org.postgresql.Driver</entry>
     <entry key='database.url'>jdbc:postgresql://3.213.133.219:5432/traccar-dev</entry>
