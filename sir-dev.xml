@@ -72,7 +72,5 @@
   <!-- Encaminha eventos do Traccar para o TrackHub -->
   <entry key="event.forward.type">json</entry>
   <entry key="event.forward.url">https://traccar.datasmartcom.com.br/webhook/events</entry>
-  <entry key="event.forward.header"
-    >Authorization: Bearer 62bf7ff8-f6fb-4135-94a0-f171313a0432</entry
-  >
+  <entry key="event.forward.header">Authorization: Bearer 62bf7ff8-f6fb-4135-94a0-f171313a0432</entry>
 </properties>
