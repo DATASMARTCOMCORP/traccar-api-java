@@ -59,7 +59,7 @@
   <entry key="notificator.types">web,mail,sms,command,firebase</entry>
 
   <!-- URL do endpoint SMS do TrackHub -->
-  <entry key="sms.http.url">https://traccar.datasmartcom.com.br/api/notifications/sms</entry>
+  <entry key="sms.http.url">https://trackhub.datasmartcom.com.br/api/notifications/sms</entry>
 
   <!-- Template JSON: os placeholders {phone} e {message} são substituídos pelo Traccar -->
   <entry key="sms.http.template">
@@ -71,6 +71,8 @@
 
   <!-- Encaminha eventos do Traccar para o TrackHub -->
   <entry key="event.forward.type">json</entry>
-  <entry key="event.forward.url">https://traccar.datasmartcom.com.br/webhook/events</entry>
-  <entry key="event.forward.header">Authorization: Bearer 62bf7ff8-f6fb-4135-94a0-f171313a0432</entry>
+  <entry key="event.forward.url">https://trackhub.datasmartcom.com.br/webhook/events</entry>
+  <entry key="event.forward.header"
+    >Authorization: Bearer 62bf7ff8-f6fb-4135-94a0-f171313a0432</entry
+  >
 </properties>
