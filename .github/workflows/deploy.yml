@@ -1,0 +1,431 @@
+name: Deploy to Production (SIR)
+
+# Builds tracker-server.jar + target/lib with Java 21 and deploys them to the
+# production SIR/Traccar server over SSH, restarting the systemd service and
+# rolling back automatically if the service fails to start.
+#
+# Required GitHub Actions SECRETS (Settings > Secrets and variables > Actions > Secrets):
+#   DEPLOY_SSH_PRIVATE_KEY  Full contents of ~/.ssh/DataSmartCom.pem, including the
+#                           "-----BEGIN ...-----" / "-----END ...-----" lines.
+#   DEPLOY_KNOWN_HOSTS      Output of: ssh-keyscan -H 44.205.131.239
+#
+# Required GitHub Actions VARIABLES (same page > Variables):
+#   DEPLOY_HOST             44.205.131.239
+#   DEPLOY_USER             admin
+#   DEPLOY_PORT             22
+#   DEPLOY_PATH             /opt/sir-server
+#   DEPLOY_SERVICE_NAME     sir-tracker
+#   DEPLOY_CONFIG_FILE      conf/sir-prd.xml
+#
+# Optional VARIABLES:
+#   DEPLOY_JAVA_BIN         Java used by the service.
+#                           Default: /home/admin/.sdkman/candidates/java/current/bin/java
+#   DEPLOY_HEALTH_PORT      TCP port that must be listening after startup.
+#                           Default: web.port from the production config, else 8082.
+#   DEPLOY_HEALTH_COMMAND   Optional extra local health check run on the server,
+#                           e.g. `curl -fsS -o /dev/null http://127.0.0.1:8082/api/server`.
+#                           Left empty by default: no public/unauthenticated endpoint is called.
+#
+# Notes:
+#   * conf/ and log/ under DEPLOY_PATH are never written or deleted by this workflow.
+#   * The service keeps using conf/sir-prd.xml; /opt/sir-server/deploy.sh is not used.
+#   * No database credentials are used here and no SQL is executed. Liquibase/SQL
+#     failures are surfaced only through the service logs printed by this workflow.
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 45
+
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+      DEPLOY_SERVICE_NAME: ${{ vars.DEPLOY_SERVICE_NAME }}
+      DEPLOY_CONFIG_FILE: ${{ vars.DEPLOY_CONFIG_FILE }}
+      DEPLOY_JAVA_BIN: ${{ vars.DEPLOY_JAVA_BIN || '/home/admin/.sdkman/candidates/java/current/bin/java' }}
+      DEPLOY_HEALTH_PORT: ${{ vars.DEPLOY_HEALTH_PORT }}
+      DEPLOY_HEALTH_COMMAND: ${{ vars.DEPLOY_HEALTH_COMMAND }}
+
+    steps:
+      - name: Validate required configuration
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_PORT DEPLOY_PATH \
+                      DEPLOY_SERVICE_NAME DEPLOY_CONFIG_FILE; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing repository variable: $name"
+              missing=1
+            fi
+          done
+          # Secret presence is evaluated as a boolean expression so secret values
+          # are never interpolated into a shell script.
+          if [ "${{ secrets.DEPLOY_SSH_PRIVATE_KEY != '' }}" != "true" ]; then
+            echo "::error::Missing secret: DEPLOY_SSH_PRIVATE_KEY"; missing=1
+          fi
+          if [ "${{ secrets.DEPLOY_KNOWN_HOSTS != '' }}" != "true" ]; then
+            echo "::error::Missing secret: DEPLOY_KNOWN_HOSTS"; missing=1
+          fi
+          [ "$missing" -eq 0 ] || exit 1
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Set up Java 21 (Temurin)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Show build toolchain
+        run: |
+          set -euo pipefail
+          java -version
+          javac -version
+
+      - name: Build with Gradle
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew clean assemble --no-daemon --stacktrace
+
+      - name: Verify build artifacts
+        run: |
+          set -euo pipefail
+          fail=0
+          if [ ! -f target/tracker-server.jar ]; then
+            echo "::error::target/tracker-server.jar was not produced by the build"; fail=1
+          fi
+          if [ ! -d target/lib ] || [ -z "$(ls -A target/lib 2>/dev/null)" ]; then
+            echo "::error::target/lib is missing or empty; the JAR is not self-contained"; fail=1
+          fi
+          [ "$fail" -eq 0 ] || exit 1
+          # The JAR must reference lib/ through its manifest Class-Path.
+          unzip -p target/tracker-server.jar META-INF/MANIFEST.MF | tr -d '\r' | grep -q 'lib/' \
+            || { echo "::error::Manifest has no lib/ Class-Path entries"; exit 1; }
+          echo "tracker-server.jar: $(du -h target/tracker-server.jar | cut -f1)"
+          echo "target/lib: $(find target/lib -type f | wc -l) files, $(du -sh target/lib | cut -f1)"
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/deploy_key"
+          chmod 600 "$RUNNER_TEMP/deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          # Host-key verification stays enabled (no StrictHostKeyChecking=no).
+          {
+            echo "SSH_KEY=$RUNNER_TEMP/deploy_key"
+            echo "RELEASE_DIR=/tmp/sir-tracker-deploy-$GITHUB_SHA"
+            echo "SSH_OPTS=-i $RUNNER_TEMP/deploy_key -p $DEPLOY_PORT -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o BatchMode=yes -o ConnectTimeout=20"
+          } >> "$GITHUB_ENV"
+
+      - name: Check SSH connectivity
+        run: |
+          set -euo pipefail
+          ssh $SSH_OPTS "$DEPLOY_USER@$DEPLOY_HOST" 'echo "connected to $(hostname)"'
+
+      - name: Upload build to temporary release directory
+        run: |
+          set -euo pipefail
+          ssh $SSH_OPTS "$DEPLOY_USER@$DEPLOY_HOST" \
+            "rm -rf '$RELEASE_DIR' && mkdir -p '$RELEASE_DIR/lib'"
+          rsync -rlpt --delete -e "ssh $SSH_OPTS" \
+            target/lib/ "$DEPLOY_USER@$DEPLOY_HOST:$RELEASE_DIR/lib/"
+          rsync -lpt -e "ssh $SSH_OPTS" \
+            target/tracker-server.jar "$DEPLOY_USER@$DEPLOY_HOST:$RELEASE_DIR/tracker-server.jar"
+
+      - name: Remote preflight checks
+        run: |
+          set -euo pipefail
+          ssh $SSH_OPTS "$DEPLOY_USER@$DEPLOY_HOST" \
+            "APP_DIR='$DEPLOY_PATH' SERVICE='$DEPLOY_SERVICE_NAME' \
+             RELEASE_DIR='$RELEASE_DIR' JAVA_BIN='$DEPLOY_JAVA_BIN' \
+             CONFIG_FILE='$DEPLOY_CONFIG_FILE' bash -s" <<'REMOTE'
+          set -euo pipefail
+          SUDO=""; [ "$(id -u)" -eq 0 ] || SUDO="sudo -n"
+
+          fail=0
+          note() { echo "  $*"; }
+          bad() { echo "PREFLIGHT FAIL: $*"; fail=1; }
+
+          # Java availability and version (the exact binary systemd uses).
+          if [ ! -x "$JAVA_BIN" ]; then
+            bad "Java binary not executable: $JAVA_BIN"
+          else
+            ver="$("$JAVA_BIN" -version 2>&1 | head -1)"
+            note "java: $ver"
+            major="$("$JAVA_BIN" -version 2>&1 | sed -n '1s/.*version "\([0-9]*\).*/\1/p')"
+            [ "$major" = "21" ] || bad "Java major version is '$major', expected 21"
+          fi
+
+          # Uploaded artifacts.
+          [ -f "$RELEASE_DIR/tracker-server.jar" ] || bad "missing $RELEASE_DIR/tracker-server.jar"
+          if [ -d "$RELEASE_DIR/lib" ] && [ -n "$(ls -A "$RELEASE_DIR/lib")" ]; then
+            note "uploaded lib: $(find "$RELEASE_DIR/lib" -type f | wc -l) files"
+          else
+            bad "missing or empty $RELEASE_DIR/lib"
+          fi
+
+          # Destination and untouched production paths.
+          [ -d "$APP_DIR" ] || bad "destination directory missing: $APP_DIR"
+          [ -f "$APP_DIR/$CONFIG_FILE" ] || bad "production config missing: $APP_DIR/$CONFIG_FILE"
+
+          # systemd unit.
+          if $SUDO systemctl cat "$SERVICE.service" >/dev/null 2>&1; then
+            note "service: $SERVICE.service present, currently $($SUDO systemctl is-active "$SERVICE.service" || true)"
+          else
+            bad "systemd service not found: $SERVICE.service"
+          fi
+
+          # Disk space: require at least 2 GB free on /.
+          avail_kb="$(df -Pk / | awk 'NR==2 {print $4}')"
+          note "free on /: $((avail_kb / 1024)) MB"
+          [ "$avail_kb" -ge 2097152 ] || bad "less than 2 GB free on / ($((avail_kb / 1024)) MB)"
+
+          [ "$fail" -eq 0 ] || exit 1
+          echo "Preflight OK"
+          REMOTE
+
+      - name: Deploy, restart and validate (with automatic rollback)
+        run: |
+          set -euo pipefail
+          ssh $SSH_OPTS "$DEPLOY_USER@$DEPLOY_HOST" \
+            "APP_DIR='$DEPLOY_PATH' SERVICE='$DEPLOY_SERVICE_NAME' \
+             RELEASE_DIR='$RELEASE_DIR' JAVA_BIN='$DEPLOY_JAVA_BIN' \
+             CONFIG_FILE='$DEPLOY_CONFIG_FILE' \
+             HEALTH_PORT='$DEPLOY_HEALTH_PORT' \
+             HEALTH_COMMAND='$DEPLOY_HEALTH_COMMAND' \
+             DEPLOY_USER='$DEPLOY_USER' GIT_SHA='$GITHUB_SHA' bash -s" <<'REMOTE'
+          set -euo pipefail
+          SUDO=""; [ "$(id -u)" -eq 0 ] || SUDO="sudo -n"
+
+          BACKUP_ROOT="$APP_DIR/.deploy-backups"
+          STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+          BACKUP_DIR="$BACKUP_ROOT/$STAMP"
+          KEEP_BACKUPS=2
+
+          run() { $SUDO "$@"; }
+
+          echo "==> Preparing backup $BACKUP_DIR"
+          run mkdir -p "$BACKUP_DIR"
+          if [ -f "$APP_DIR/tracker-server.jar" ]; then
+            run cp -p "$APP_DIR/tracker-server.jar" "$BACKUP_DIR/tracker-server.jar"
+          else
+            echo "    no existing tracker-server.jar to back up"
+          fi
+          if [ -d "$APP_DIR/lib" ]; then
+            # Hard-link copy: a full restorable snapshot that costs almost no disk.
+            # rsync replaces files via temp+rename, so the links stay valid.
+            run cp -al "$APP_DIR/lib" "$BACKUP_DIR/lib"
+            run sh -c "ls -la '$APP_DIR/lib' > '$BACKUP_DIR/lib.listing'"
+            echo "    backed up $(find "$APP_DIR/lib" -type f | wc -l) lib files"
+          fi
+
+          # Bounded retention: this server has run out of disk before.
+          if [ -d "$BACKUP_ROOT" ]; then
+            # shellcheck disable=SC2012
+            ls -1d "$BACKUP_ROOT"/*/ 2>/dev/null | sort | head -n "-$KEEP_BACKUPS" | while read -r old; do
+              echo "    pruning old backup $old"
+              run rm -rf "$old"
+            done
+          fi
+
+          rollback() {
+            echo "::group::Rollback"
+            echo "==> Deployment failed, rolling back"
+            run systemctl stop "$SERVICE.service" || true
+            if [ -f "$BACKUP_DIR/tracker-server.jar" ]; then
+              run cp -p "$BACKUP_DIR/tracker-server.jar" "$APP_DIR/tracker-server.jar"
+              echo "    restored previous tracker-server.jar"
+            fi
+            if [ -d "$BACKUP_DIR/lib" ]; then
+              run rsync -a --delete "$BACKUP_DIR/lib/" "$APP_DIR/lib/"
+              echo "    restored previous lib/"
+            fi
+            run systemctl start "$SERVICE.service" || true
+            sleep 15
+            echo "    service after rollback: $($SUDO systemctl is-active "$SERVICE.service" || true)"
+            echo "::endgroup::"
+            echo "::group::Service logs after rollback"
+            run journalctl -u "$SERVICE.service" -n 100 --no-pager || true
+            echo "::endgroup::"
+          }
+
+          echo "==> Stopping $SERVICE.service"
+          run systemctl stop "$SERVICE.service" || true
+          # Give the JVM a moment to release its listening sockets.
+          for _ in $(seq 1 20); do
+            [ "$($SUDO systemctl is-active "$SERVICE.service" || true)" = "active" ] || break
+            sleep 1
+          done
+
+          DEPLOY_START="$(date -u '+%Y-%m-%d %H:%M:%S')"
+
+          echo "==> Installing new artifacts (conf/ and log/ untouched)"
+          set +e
+          (
+            set -e
+            run install -m 0644 "$RELEASE_DIR/tracker-server.jar" "$APP_DIR/tracker-server.jar"
+            run mkdir -p "$APP_DIR/lib"
+            run rsync -a --delete "$RELEASE_DIR/lib/" "$APP_DIR/lib/"
+            # Readable by the service user; ownership change is best effort.
+            run chown -R "$DEPLOY_USER:$DEPLOY_USER" "$APP_DIR/lib" "$APP_DIR/tracker-server.jar" || true
+            run chmod -R u+rwX,go+rX "$APP_DIR/lib"
+            run chmod 0644 "$APP_DIR/tracker-server.jar"
+          )
+          install_rc=$?
+          set -e
+          if [ "$install_rc" -ne 0 ]; then
+            echo "::error::Failed to install artifacts (rc=$install_rc)"
+            rollback
+            exit 1
+          fi
+
+          echo "==> Reloading systemd and starting $SERVICE.service"
+          run systemctl daemon-reload || true
+          if ! run systemctl start "$SERVICE.service"; then
+            echo "::error::systemctl start failed"
+            rollback
+            exit 1
+          fi
+
+          echo "==> Waiting for startup"
+          active=""
+          for _ in $(seq 1 24); do
+            sleep 5
+            active="$($SUDO systemctl is-active "$SERVICE.service" || true)"
+            [ "$active" = "activating" ] || break
+          done
+          echo "    is-active: $active"
+
+          echo "::group::Service status"
+          run systemctl status "$SERVICE.service" --no-pager -l || true
+          echo "::endgroup::"
+          echo "::group::Last 100 service log lines"
+          run journalctl -u "$SERVICE.service" -n 100 --no-pager || true
+          echo "::endgroup::"
+
+          if [ "$active" != "active" ]; then
+            echo "::error::$SERVICE.service is not active after deployment (state: $active)"
+            rollback
+            exit 1
+          fi
+
+          echo "==> Validating deployment"
+          validation_failed=0
+
+          # Running process must be the expected Java 21 binary.
+          pid="$($SUDO systemctl show -p MainPID --value "$SERVICE.service" || true)"
+          if [ -n "$pid" ] && [ "$pid" != "0" ] && [ -d "/proc/$pid" ]; then
+            exe="$($SUDO readlink -f "/proc/$pid/exe" || true)"
+            echo "    main pid $pid exe: $exe"
+            pver="$("$JAVA_BIN" -version 2>&1 | sed -n '1s/.*version "\([0-9]*\).*/\1/p')"
+            echo "    service java major version: $pver"
+            [ "$pver" = "21" ] || { echo "::error::Service Java major version is '$pver', expected 21"; validation_failed=1; }
+          else
+            echo "::error::No running main process for $SERVICE.service"
+            validation_failed=1
+          fi
+
+          # Listening port: explicit variable, else web.port from the production config, else 8082.
+          port="$HEALTH_PORT"
+          if [ -z "$port" ]; then
+            port="$($SUDO sed -n "s/.*name=['\"]web.port['\"][^>]*>\([0-9]*\)<.*/\1/p" \
+              "$APP_DIR/$CONFIG_FILE" 2>/dev/null | head -1 || true)"
+          fi
+          [ -n "$port" ] || port=8082
+          echo "    expecting TCP port $port to be listening"
+          listening=0
+          for _ in $(seq 1 12); do
+            if $SUDO ss -ltnH 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]$port\$"; then
+              listening=1; break
+            fi
+            sleep 5
+          done
+          if [ "$listening" -eq 1 ]; then
+            echo "    port $port is listening"
+          else
+            echo "::error::Port $port is not listening"
+            validation_failed=1
+          fi
+
+          # Optional server-local health command (no public endpoint is called by default).
+          if [ -n "$HEALTH_COMMAND" ]; then
+            echo "    running local health command"
+            if sh -c "$HEALTH_COMMAND"; then
+              echo "    health command OK"
+            else
+              echo "::error::Local health command failed"
+              validation_failed=1
+            fi
+          fi
+
+          # Fatal startup errors in logs produced since this deployment began.
+          echo "==> Scanning logs for fatal startup errors"
+          logs="$($SUDO journalctl -u "$SERVICE.service" --since "$DEPLOY_START" --no-pager 2>/dev/null || true)"
+          found_errors="$(printf '%s\n' "$logs" | grep -E \
+            'UnsupportedClassVersionError|NoClassDefFoundError|LiquibaseException|SQLException|Address already in use' \
+            || true)"
+          if [ -n "$found_errors" ]; then
+            echo "::group::Fatal error patterns found in recent logs"
+            printf '%s\n' "$found_errors" | head -50
+            echo "::endgroup::"
+            echo "::error::Fatal startup errors detected in $SERVICE logs"
+            validation_failed=1
+          else
+            echo "    no fatal error patterns found"
+          fi
+
+          if [ "$validation_failed" -ne 0 ]; then
+            rollback
+            exit 1
+          fi
+
+          echo "Deployment of $GIT_SHA validated successfully"
+          REMOTE
+
+      - name: Clean up remote temporary directories
+        if: always()
+        run: |
+          set -euo pipefail
+          ssh $SSH_OPTS "$DEPLOY_USER@$DEPLOY_HOST" \
+            "RELEASE_DIR='$RELEASE_DIR' bash -s" <<'REMOTE' || true
+          set -uo pipefail
+          # Only /tmp deployment scratch is removed. Never conf/, log/ or $APP_DIR itself.
+          rm -rf "$RELEASE_DIR"
+          for d in /tmp/sir-tracker-deploy-*; do
+            [ -d "$d" ] || continue
+            rm -rf "$d"
+          done
+          echo "temporary deployment directories removed"
+          df -Ph / | tail -1
+          REMOTE
+
+      - name: Remove SSH private key
+        if: always()
+        run: |
+          set -euo pipefail
+          shred -u "$RUNNER_TEMP/deploy_key" 2>/dev/null || rm -f "$RUNNER_TEMP/deploy_key"
+          rm -f ~/.ssh/known_hosts
