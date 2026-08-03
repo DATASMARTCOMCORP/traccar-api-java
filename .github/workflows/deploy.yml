@@ -151,7 +151,14 @@ jobs:
           set -euo pipefail
           ssh $SSH_OPTS "$DEPLOY_USER@$DEPLOY_HOST" \
             "rm -rf '$RELEASE_DIR' && mkdir -p '$RELEASE_DIR/lib'"
-          rsync -rlpt --delete -e "ssh $SSH_OPTS" \
+          # target/lib is ~245 MB / ~500 jars, but almost all of it is identical to what is
+          # already live on the server. --copy-dest lets rsync satisfy unchanged files from
+          # the existing lib/ locally on the server instead of sending them over the wire,
+          # so a typical deploy only transfers tracker-server.jar plus changed dependencies.
+          # Single SSH connection either way; no per-file handshakes.
+          rsync -rlpt --delete --stats --human-readable \
+            --copy-dest="$DEPLOY_PATH/lib" \
+            -e "ssh $SSH_OPTS" \
             target/lib/ "$DEPLOY_USER@$DEPLOY_HOST:$RELEASE_DIR/lib/"
           rsync -lpt -e "ssh $SSH_OPTS" \
             target/tracker-server.jar "$DEPLOY_USER@$DEPLOY_HOST:$RELEASE_DIR/tracker-server.jar"
