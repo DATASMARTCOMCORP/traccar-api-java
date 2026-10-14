@@ -238,6 +238,13 @@ SELECT actiontype, objecttype, count(*) FROM tc_actions
 WHERE actiontime > localtimestamp - interval '30 days' GROUP BY 1, 2 ORDER BY 3 DESC;
 ```
 
+Two Java defaults matter even when the key is absent:
+- `server.statistics` defaults to `https://www.traccar.org/analytics/`. Unless production sets it
+  to an empty value, Java posts daily usage counts to traccar.org. `sir-dev.xml` doesn't set it.
+  Decide whether Go reproduces this.
+- `server.buffering.threshold` defaults to 3000 ms, not 0. `sir-dev.xml` sets 5000. Record the
+  production value: fixes are held this long before processing, and the ordering depends on it.
+
 Config keys to check (names only, from 4c): `openid.*`, `ldap.*`, `web.serviceAccountToken`,
 `web.sanitize`, `web.origin`, `server.statistics`, `notificator.*`, `forward.*`, `event.forward.*`,
 `geocoder.*`, `geolocation.*`, `report.*`, `database.saveOriginal`, `database.registerUnknown*`,

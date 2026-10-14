@@ -228,3 +228,42 @@ Each step ends with a **gate**: its exit criteria must pass before the next step
 - Port only protocols in use (recommended) or all 200+?
 - Postgres only (recommended; production uses Postgres), or keep H2/MySQL/MSSQL?
 - Keep the API on Java until all ports have moved (simpler), or build the Redis broadcast early?
+
+## 8. Decisions and findings during Steps 1 and 2
+
+Decisions (from the review of section 7): **Postgres only**. **Port only the protocols production
+uses**, starting with osmand, suntech (with the SIR two's-complement fix), intellitrac and atrack.
+**Keep the API on Java until every device port has moved**; no Redis broadcast for now.
+
+Findings while building the harness. These were checked against the jar built from `go-migration`
+and need a decision before the steps that depend on them:
+
+1. **The SIR Suntech fix was lost in the upstream merge `907139a13`.** Its first parent decoded
+   binary coordinates as two's complement with a signed-magnitude fallback. The merged
+   `SuntechProtocolDecoder` is stock upstream (signed magnitude only). The SIR tests
+   `testDecodeTwosComplement` and `testDecodeBrazilianCoordinates` now **fail** ("Latitude out of
+   range"), and the server drops those messages and closes the connection. Any production jar built
+   after the merge loses binary Suntech fixes with negative coordinates (all of Brazil). For Step 7,
+   the reference behavior for those vectors is the pre-merge decoder, not the current oracle.
+   `inventory/README.md` §4b has the production check.
+2. **`changelog-6.13-dsc.xml` is no longer included** by `schema/changelog-master.xml` (also lost in
+   `907139a13`). A database created or upgraded by the current jar keeps `tc_geofences.area` as
+   `VARCHAR(4096)`, and geofences above 4096 characters fail with 400 (the harness has such a step).
+   The Go schema check therefore accepts the DSC changeset as optional. Production (§1 of the
+   inventory) decides whether it's required.
+3. **`suntech_udp.port` (in `sir-dev.xml`) has no effect.** No protocol named `suntech_udp` exists,
+   and Java opens no UDP Suntech port.
+4. **Java defaults that reach the network:** `geocoder.type` defaults to the online `locationiq`
+   geocoder (production overrides it with pluscodes), and `server.statistics` defaults to posting
+   daily counts to traccar.org unless set to an empty value. `sir-dev.xml` doesn't set it.
+5. **`server.buffering.threshold` defaults to 3000 ms** (production: 5000). Fixes are held in memory
+   that long before processing.
+6. **Java is not deterministic everywhere.** These outputs vary between two runs of the same jar:
+   `geofenceIds` order (API and `tc_positions.geofenceids` text, built from a HashSet),
+   `/api/notifications/notificators` order, and `/api/positions/csv` column order. "Byte-identical"
+   can't apply to them, so the harness compares them as sets (see `compat/README.md`). Network
+   `cellTowers` and `tc_statistics.protocols` also come from hash-ordered Java collections. Go must
+   emulate that order when it creates new rows (Steps 7 and 9).
+7. **Time zones:** when the JVM reads a wall-clock time that is ambiguous or doesn't exist (DST
+   transitions; São Paulo had DST until 2019), it resolves it to the **standard** offset. Go
+   reproduces this explicitly (`internal/store`, tested with vectors from the oracle).
