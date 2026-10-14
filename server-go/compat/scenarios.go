@@ -265,6 +265,24 @@ func library() []Scenario {
 			get("admin", "/api/positions?deviceId=${osmand}"),
 		}},
 
+		// How the in-house clients use the server (inventory/clients.md): traccar-bots reads
+		// with Basic auth, and both client repositories post OsmAnd positions.
+		{Name: "client-usage", Steps: []Step{
+			osmand(
+				// traccar-bots: POST with the query string only, bearing, UTC timestamp.
+				"POST /?id=123456&lat=-23.5299&lon=-46.6099&timestamp=2026-10-01T13:00:00.123Z&speed=1.94&bearing=90&altitude=760&accuracy=8&valid=true\n",
+				// track-client-lib (Android/iOS): form body, heading, batt, os, activity.
+				"POST /\nid=123456&lat=-23.5298&lon=-46.6098&timestamp=2026-10-01T13:01:00.000Z&speed=3.8876&heading=180.5&accuracy=12.3&altitude=761.2&batt=87.0&charge=true&is_moving=true&odometer=0&activity=in_vehicle&os=android",
+				// track-client-lib (JS task): timestamp with a local offset.
+				"POST /\nid=123456&lat=-23.5297&lon=-46.6097&timestamp=2026-10-01T10:02:00.000-03:00&speed=0&heading=0&accuracy=5&altitude=760&batt=86.0&charge=false&is_moving=false&odometer=0&activity=still&os=ios",
+			),
+			basicGet("/api/devices"),
+			basicGet("/api/positions"),
+			basicGet("/api/groups?all=true"),
+			basicGet("/api/geofences?groupId=${fleet}"),
+			basicGet("/api/geofences?all=true"),
+		}},
+
 		{Name: "reports", Steps: []Step{
 			reportGet("/api/reports/route?deviceId=${osmand}&from=2026-10-01T00:00:00Z&to=2026-10-02T00:00:00Z"),
 			reportGet("/api/reports/events?deviceId=${osmand}&from=2026-10-01T00:00:00Z&to=2026-10-02T00:00:00Z"),
@@ -339,6 +357,12 @@ func login(actor, email, password string) Step {
 // host's live free and total disk space, so only its shape is compared.
 func serverInfo(actor string) Step {
 	return get(actor, "/api/server").opaque("$.storageSpace")
+}
+
+// basicGet is a request as traccar-bots sends it: Basic auth, Accept JSON, no session.
+func basicGet(path string) Step {
+	return get("", path).header("Authorization", "Basic "+basic("admin@example.com", "secret")).
+		header("Accept", "application/json")
 }
 
 func reportGet(path string) Step {

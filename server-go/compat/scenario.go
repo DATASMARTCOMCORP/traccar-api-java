@@ -56,7 +56,7 @@ type Step struct {
 type Traffic struct {
 	Protocol  string   // key into target.ports
 	Transport string   // "tcp", "udp" or "http" (osmand)
-	Messages  [][]byte // tcp/udp: one write or datagram each; http: one "path?query" each
+	Messages  [][]byte // tcp/udp: one write or datagram each; http: "path?query" (GET) or "POST path\nbody"
 }
 
 // side is the state of one target during a run: variables saved from its responses and
@@ -258,7 +258,14 @@ func (r *side) traffic(ctx context.Context, tr *Traffic) (*response, error) {
 			if err != nil {
 				return nil, err
 			}
-			resp, err := client.Get("http://" + addr + msg)
+			// "POST <path>\n<form body>" posts like the SIR clients; anything else is a GET.
+			var resp *http.Response
+			if rest, ok := strings.CutPrefix(msg, "POST "); ok {
+				path, body, _ := strings.Cut(rest, "\n")
+				resp, err = client.Post("http://"+addr+path, "application/x-www-form-urlencoded", strings.NewReader(body))
+			} else {
+				resp, err = client.Get("http://" + addr + msg)
+			}
 			if err != nil {
 				return nil, err
 			}
