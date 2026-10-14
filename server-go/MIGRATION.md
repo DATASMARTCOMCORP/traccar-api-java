@@ -1,6 +1,7 @@
 # SIR server: Java → Go migration plan
 
-Status: **draft, awaiting approval**. No Go code is written until this plan is approved.
+Status: **approved**. Steps 1 (harness) and 2 (foundation) are done; Step 0 is waiting on
+production access (queries in `inventory/README.md`). Decisions and findings are in section 8.
 
 ## 1. Goals and hard constraints
 
@@ -234,6 +235,12 @@ Each step ends with a **gate**: its exit criteria must pass before the next step
 Decisions (from the review of section 7): **Postgres only**. **Port only the protocols production
 uses**, starting with osmand, suntech (with the SIR two's-complement fix), intellitrac and atrack.
 **Keep the API on Java until every device port has moved**; no Redis broadcast for now.
+
+**The Go Suntech decoder keeps the SIR fix** (decided after finding 1 below): binary coordinates
+are read as two's complement first, with a fallback to signed magnitude, as on `907139a13^1`. For
+those vectors the reference is the pre-merge decoder, not the current jar. In Step 7 the harness
+replays them against a jar built from `907139a13^1`, or lists them as an expected, documented
+divergence from the current oracle. Either way, the fix is checked, not skipped.
 
 Findings while building the harness. These were checked against the jar built from `go-migration`
 and need a decision before the steps that depend on them:

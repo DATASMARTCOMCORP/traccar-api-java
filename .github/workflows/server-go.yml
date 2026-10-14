@@ -1,0 +1,79 @@
+name: Go server
+
+on:
+  push:
+    branches: [ go-migration ]
+    paths: [ 'server-go/**', 'schema/**', 'src/**', '.github/workflows/server-go.yml' ]
+  pull_request:
+    paths: [ 'server-go/**', 'schema/**', 'src/**', '.github/workflows/server-go.yml' ]
+
+defaults:
+  run:
+    working-directory: server-go
+    shell: bash # -eo pipefail, so a failure before `| tee` fails the step
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: server-go/go.mod
+          cache-dependency-path: server-go/go.sum
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - run: go vet ./...
+      - run: go test ./...
+      - name: Static binary
+        run: CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_SHA::12}" -o sir-server ./cmd/sir-server
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sir-server-linux-amd64
+          path: server-go/sir-server
+
+  # Java-vs-Java harness self-check (the Step 1 gate), the DB round-trip tests on rows
+  # written by Java (the Step 2 gate), and the time-zone canary, which must fail.
+  compat:
+    runs-on: ubuntu-latest
+    env:
+      PG_VERSION: 17.11.0
+      PG_SHA1: 9630574fd607bbd20eea73739b4c4e5af2265cd5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - name: Build the Java reference jar
+        working-directory: .
+        run: ./gradlew assemble --no-daemon
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: server-go/go.mod
+          cache-dependency-path: server-go/go.sum
+      - name: Postgres binaries (zonky embedded-postgres-binaries)
+        working-directory: ${{ runner.temp }}
+        run: |
+          jar=embedded-postgres-binaries-linux-amd64-$PG_VERSION.jar
+          curl -sSfLO https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-linux-amd64/$PG_VERSION/$jar
+          echo "$PG_SHA1  $jar" | sha1sum -c
+          mkdir -p pg/extract pg/pgsql
+          unzip -q $jar -d pg/extract
+          tar -xJf pg/extract/postgres-linux-x86_64.txz -C pg/pgsql
+      - name: Harness self-check (Java vs Java)
+        run: go run ./compat -pg-bin "$RUNNER_TEMP/pg/pgsql/bin" -keep -work "$RUNNER_TEMP/compat" | tee "$RUNNER_TEMP/compat.out"
+      - name: DB round trip on Java rows
+        run: |
+          dsn=$(grep -oE 'postgres://[^ ]*side_A' "$RUNNER_TEMP/compat.out" | head -1)
+          SIR_TEST_JAVA_DB="$dsn" go test -count=1 -v ./internal/store ./cmd/sir-server
+      - name: Canary (must fail)
+        run: |
+          if go run ./compat -pg-bin "$RUNNER_TEMP/pg/pgsql/bin" -b-tz UTC > "$RUNNER_TEMP/canary.out"; then
+            echo "canary passed: the harness no longer detects time-zone errors"; exit 1
+          fi
+          grep -q 'FAIL' "$RUNNER_TEMP/canary.out"
+      - name: Logs
+        if: failure()
+        run: tail -n 200 "$RUNNER_TEMP"/compat/*/tracker-server.log || true
