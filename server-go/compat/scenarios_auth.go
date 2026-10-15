@@ -8,12 +8,15 @@ import "encoding/base64"
 type suite struct {
 	seed      []Step
 	scenarios []Scenario
+	// strictSeed fails the run when a seed step answers >= 300.
+	strictSeed bool
 }
 
 func suites() map[string]suite {
 	return map[string]suite{
 		"full": {scenarios: library()},
 		"auth": authSuite(),
+		"read": readSuite(),
 	}
 }
 
@@ -46,7 +49,7 @@ func authSuite() suite {
 		return s.header("Authorization", "Basic "+basic(user, password))
 	}
 
-	return suite{seed: seed, scenarios: []Scenario{
+	return suite{seed: seed, strictSeed: true, scenarios: []Scenario{
 		{Name: "server-info", Steps: []Step{
 			serverInfo(""),
 			basicAs(serverInfo(""), "admin@example.com", "secret"),

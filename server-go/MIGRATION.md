@@ -1,7 +1,7 @@
 # SIR server: Java → Go migration plan
 
-Status: **approved**. Steps 0 (inventory, `inventory/results/`), 1 (harness), 2 (foundation)
-and 3 (auth and sessions) are done. Decisions and findings are in section 8.
+Status: **approved**. Steps 0 (inventory, `inventory/results/`), 1 (harness), 2 (foundation),
+3 (auth and sessions) and 4 (read-only API) are done. Decisions and findings are in section 8.
 
 ## 1. Goals and hard constraints
 
@@ -320,3 +320,31 @@ Not done yet, noted for later steps:
 - OPTIONS preflight responses
 - a 405 for a wrong method on a known path: everything under `/api/` that doesn't match a
   route currently gets 404
+
+### Step 4 (read-only API), 2026-10-15
+
+Gate passed: the harness `read` suite (8 scenarios, 230 steps) matches **Java vs Go** for the
+admin, manager, user, readonly and anonymous roles, in statuses, headers, JSON and database
+rows. Its seed is the whole `full` library run through Java, plus a 4-level group chain.
+
+Permissions are a port of Java's SQL, statement for statement, including its limit: groups are
+followed to the grandparent only (the harness checks that a great-grandchild device is denied
+by both servers). Several values are generated from the Java sources and kept in sync by tests:
+- the command and event type lists
+- each protocol's supported commands, returned in Java's `HashSet` order, which Go reproduces
+  (checked against JDK output)
+- the default ports
+- the time-zone list, which is JDK 21.0.12's, as in production
+
+Java quirks reproduced:
+- devices reset to offline at startup
+- `/api/permissions` keys are lower case, because Postgres folds the column labels
+- a missing object is a 404 with Jetty's HTML error page Content-Type
+- a query parameter that doesn't convert is a 404, not a 400
+
+Not done in Step 4:
+- position exports (CSV, GPX, KML): Step 9, with reports
+- `GET /api/positions?geofenceId=`: needs geofence geometry and answers 501 until then
+- `/api/server/geocode`: Step 9, with geocoders
+- `/api/server/cache`: a dump of Java objects, which Go won't reproduce
+- the FindHub command sender

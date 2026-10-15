@@ -135,10 +135,26 @@ func run() error {
 	}
 	// The suite's seed runs on the template through Java, so both sides start with the
 	// same Java-created rows (users, password hashes, the token key pair).
-	seed := newSide(tmpl, nil)
+	tmplConn, err := pgx.Connect(ctx, pg.dsn("schema_template"))
+	if err != nil {
+		tmpl.stop()
+		return err
+	}
+	seed := newSide(tmpl, tmplConn)
 	for i, s := range suite.seed {
 		resp, err := seed.do(ctx, s)
-		if err != nil || resp.status >= 300 {
+		if s.Device != nil {
+			time.Sleep(bufferingThreshold + time.Second)
+			if _, err := waitQuiet(ctx, tmplConn); err != nil {
+				tmplConn.Close(ctx)
+				tmpl.stop()
+				return fmt.Errorf("seed step %d: %w", i+1, err)
+			}
+		}
+		// The library seeds include deliberate 4xx steps; only a failed request (or a
+		// variable that couldn't be saved from a success) stops the seed.
+		if err != nil || resp.status >= 300 && suite.strictSeed {
+			tmplConn.Close(ctx)
 			tmpl.stop()
 			status := 0
 			if resp != nil {
@@ -147,6 +163,7 @@ func run() error {
 			return fmt.Errorf("seed step %d %s: status %d, %v", i+1, describe(s), status, err)
 		}
 	}
+	tmplConn.Close(ctx)
 	tmpl.stop()
 
 	var targets []*target

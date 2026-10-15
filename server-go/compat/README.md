@@ -23,6 +23,7 @@ It exits 0 when every scenario matches, 1 on differences, and 2 on setup errors.
 |---|---|---|---|
 | `full` (default) | an empty database | the whole API, device traffic, reports | passes once the API is ported (Steps 4–8) |
 | `auth` | users, tokens and the key pair created by Java in a seed | Step 3: password, TOTP, Basic, bearer token and cookie logins; tokens across servers; revocation; login-as; Java's error statuses | **passes** (Step 3 gate) |
+| `read` | the `full` library (minus deletes) run through Java as the seed: every role, groups 4 levels deep, permissions, positions and events from device traffic | Step 4: every read-only endpoint per role and parameter (all, userId, groupId, deviceId, uniqueId/id lists, keyword, limit/offset, excludeAttributes), single objects, positions, events, statistics, audit, permissions, command and notification types | **passes** (Step 4 gate) |
 
 A suite's **seed** runs once, through Java, on the template database before both sides are
 cloned. Both sides then start with the same Java-made rows (password hashes, the

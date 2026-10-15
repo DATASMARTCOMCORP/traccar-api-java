@@ -109,6 +109,7 @@ func (t *target) writeConfig(l launch) error {
 		"server.instantAcknowledgement": "true",
 		"server.buffering.threshold":    strconv.Itoa(int(bufferingThreshold.Milliseconds())),
 		"server.timeout":                "120",
+		"notificator.types":             "web,mail,sms,command,firebase", // as in production
 	}
 	var names []string
 	for _, p := range protocols {

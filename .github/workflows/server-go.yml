@@ -33,8 +33,8 @@ jobs:
           path: server-go/sir-server
 
   # Java-vs-Java harness self-check (Step 1 gate), the DB round trip on rows written by
-  # Java (Step 2 gate), the auth suite Java vs Go (Step 3 gate), and the time-zone
-  # canary, which must fail.
+  # Java (Step 2 gate), the auth and read suites Java vs Go (Steps 3 and 4), and the
+  # time-zone canary, which must fail.
   compat:
     runs-on: ubuntu-latest
     env:
@@ -73,6 +73,8 @@ jobs:
         run: |
           CGO_ENABLED=0 go build -o "$RUNNER_TEMP/sir-server" ./cmd/sir-server
           go run ./compat -pg-bin "$RUNNER_TEMP/pg/pgsql/bin" -suite auth -b go -go-bin "$RUNNER_TEMP/sir-server"
+      - name: Read suite, Java vs Go (Step 4 gate)
+        run: go run ./compat -pg-bin "$RUNNER_TEMP/pg/pgsql/bin" -suite read -b go -go-bin "$RUNNER_TEMP/sir-server"
       - name: Canary (must fail)
         run: |
           if go run ./compat -pg-bin "$RUNNER_TEMP/pg/pgsql/bin" -b-tz UTC > "$RUNNER_TEMP/canary.out"; then
