@@ -265,7 +265,7 @@ func (c Command) MarshalJSON() ([]byte, error) {
 	o := newObject()
 	o.int("id", c.ID)
 	o.attributes("attributes", &c.Attributes)
-	o.int("deviceId", 0) // only set on commands being sent, never stored
+	o.int("deviceId", c.DeviceID)
 	o.str("type", c.Type)
 	o.boolean("textChannel", c.TextChannel)
 	o.str("description", c.Description)

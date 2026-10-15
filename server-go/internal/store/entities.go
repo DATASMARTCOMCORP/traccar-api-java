@@ -157,12 +157,64 @@ func (s *Store) update(ctx context.Context, tableName string, id int64, columns 
 		sets[i] = c + " = $" + itoa(i+1)
 	}
 	sql := "UPDATE " + tableName + " SET " + strings.Join(sets, ", ") + " WHERE id = $" + itoa(len(columns)+1) + "::bigint"
-	tag, err := s.pool.Exec(ctx, sql, append(values, id)...)
-	if err != nil {
+	// Like Java's updateObject, updating a row that doesn't exist is not an error.
+	if _, err := s.pool.Exec(ctx, sql, append(values, id)...); err != nil {
 		return fmt.Errorf("update %s: %w", tableName, err)
 	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update %s %d: %w", tableName, id, ErrNotFound)
+	return nil
+}
+
+// ConsumeID uses one value of a table's id sequence, as a failed Java insert does.
+func (s *Store) ConsumeID(ctx context.Context, kind Kind) error {
+	table := map[Kind]string{KindUser: "tc_users", KindDevice: "tc_devices", KindGroup: "tc_groups",
+		KindGeofence: "tc_geofences", KindNotification: "tc_notifications", KindDriver: "tc_drivers",
+		KindAttribute: "tc_attributes", KindCalendar: "tc_calendars", KindCommand: "tc_commands",
+		KindMaintenance: "tc_maintenances", KindOrder: "tc_orders", KindReport: "tc_reports"}[kind]
+	if table == "" {
+		return fmt.Errorf("no table for %s", kind)
+	}
+	if _, err := s.pool.Exec(ctx, "SELECT nextval(pg_get_serial_sequence($1, 'id'))", table); err != nil {
+		return fmt.Errorf("consume %s id: %w", table, err)
+	}
+	return nil
+}
+
+// Delete removes the row with the given id from T's table (no error if absent, as Java).
+func Delete[T Entity](ctx context.Context, s *Store, id int64) error {
+	t := tableOf[T]()
+	if _, err := s.pool.Exec(ctx, "DELETE FROM "+t.name+" WHERE id = $1::bigint", id); err != nil {
+		return fmt.Errorf("delete %s: %w", t.name, err)
+	}
+	return nil
+}
+
+// DeletePositions removes a device's positions with fixTime in [from, to].
+func (s *Store) DeletePositions(ctx context.Context, deviceID int64, from, to model.Time) error {
+	_, err := s.pool.Exec(ctx, "DELETE FROM tc_positions WHERE deviceId = $1::bigint AND fixTime BETWEEN $2 AND $3",
+		deviceID, s.ts(&from), s.ts(&to))
+	if err != nil {
+		return fmt.Errorf("delete tc_positions: %w", err)
+	}
+	return nil
+}
+
+// AddLink inserts a link-table row. Link tables have no unique constraint, so linking twice
+// stores two rows, as Java does.
+func (s *Store) AddLink(ctx context.Context, owner Kind, ownerID int64, property Kind, propertyID int64) error {
+	t := linkTable(owner, property)
+	_, err := s.pool.Exec(ctx, "INSERT INTO "+t+" ("+owner.Key()+", "+property.Key()+") VALUES ($1, $2)", ownerID, propertyID)
+	if err != nil {
+		return fmt.Errorf("insert %s: %w", t, err)
+	}
+	return nil
+}
+
+// RemoveLink deletes every matching link-table row.
+func (s *Store) RemoveLink(ctx context.Context, owner Kind, ownerID int64, property Kind, propertyID int64) error {
+	t := linkTable(owner, property)
+	_, err := s.pool.Exec(ctx, "DELETE FROM "+t+" WHERE "+owner.Key()+" = $1::bigint AND "+property.Key()+" = $2::bigint", ownerID, propertyID)
+	if err != nil {
+		return fmt.Errorf("delete %s: %w", t, err)
 	}
 	return nil
 }

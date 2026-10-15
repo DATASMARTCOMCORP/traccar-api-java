@@ -180,10 +180,12 @@ type Calendar struct {
 	Data       []byte // iCalendar
 }
 
-// Command is a saved command (tc_commands).
+// Command is a saved command (tc_commands), or a command being sent; DeviceID is only
+// set when sending and isn't stored.
 type Command struct {
 	ID          int64
 	Attributes  Attributes
+	DeviceID    int64
 	Description string
 	Type        string
 	TextChannel bool
