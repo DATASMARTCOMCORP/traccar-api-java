@@ -23,6 +23,8 @@ It exits 0 when every scenario matches, 1 on differences, and 2 on setup errors.
 |---|---|---|---|
 | `full` (default) | an empty database | the whole API, device traffic, reports | passes once the API is ported (Steps 4–8) |
 | `auth` | users, tokens and the key pair created by Java in a seed | Step 3: password, TOTP, Basic, bearer token and cookie logins; tokens across servers; revocation; login-as; Java's error statuses | **passes** (Step 3 gate) |
+| `crud` | an empty database | the `full` library without device traffic and reports: registration, users, tokens, every entity's create/update/delete, permissions, command queueing, deletes | **passes** (Step 5 gate) |
+| `write` | the `read` seed plus users with limits | Step 5: accumulators, image upload, sharing, password update, position deletes, privilege and read-only rules, manager and device limits, group cycles, non-admin links, group commands, and how request bodies are read (coercions, unknown properties, nulls) | **passes** (Step 5 gate) |
 | `read` | the `full` library (minus deletes) run through Java as the seed: every role, groups 4 levels deep, permissions, positions and events from device traffic | Step 4: every read-only endpoint per role and parameter (all, userId, groupId, deviceId, uniqueId/id lists, keyword, limit/offset, excludeAttributes), single objects, positions, events, statistics, audit, permissions, command and notification types | **passes** (Step 4 gate) |
 
 A suite's **seed** runs once, through Java, on the template database before both sides are
@@ -89,6 +91,7 @@ catches real differences.
 | `/api/server` `storageSpace` (admin only) | same shape | The host's live free and total disk space. |
 | `/api/notifications/notificators` | array order ignored | Java returns a `HashSet`; its order changes between JVM runs. |
 | `geofenceIds` (any JSON) and `tc_positions.geofenceids` | same elements, any order | Java fills it from a `HashSet` of geofences whose order changes between JVM runs, so Java doesn't produce one stable text either. |
+| Bodies labelled JSON that aren't JSON (tokens, file names) | compared byte for byte | Java sends these plain strings as `application/json`. |
 | `/api/positions/csv` | columns matched by name | Attribute columns come from a `HashSet`. |
 
 The Java-vs-Java self-check (the Step 1 gate) passes only with these rules. Anything else

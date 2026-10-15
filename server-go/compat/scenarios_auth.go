@@ -14,10 +14,25 @@ type suite struct {
 
 func suites() map[string]suite {
 	return map[string]suite{
-		"full": {scenarios: library()},
-		"auth": authSuite(),
-		"read": readSuite(),
+		"full":  {scenarios: library()},
+		"auth":  authSuite(),
+		"read":  readSuite(),
+		"crud":  crudSuite(),
+		"write": writeSuite(),
 	}
+}
+
+// crudSuite is the full library from an empty database without the scenarios that need
+// device traffic (Go gets protocol ports in Steps 6 and 7): registration, users, tokens,
+// every entity's create/update/delete, permissions, command queueing and deletes.
+func crudSuite() suite {
+	var scenarios []Scenario
+	for _, sc := range library() {
+		if sc.Name != "device-traffic" && sc.Name != "reports" && sc.Name != "client-usage" {
+			scenarios = append(scenarios, sc)
+		}
+	}
+	return suite{scenarios: scenarios}
 }
 
 // totpSecret is a fixed base32 TOTP key; ${totp:...} expands to its current code.

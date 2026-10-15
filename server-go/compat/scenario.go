@@ -41,9 +41,11 @@ type Step struct {
 	// API request.
 	Actor     string // whose cookie jar to use; "" is a fresh anonymous client
 	Method    string
-	Path      string            // may contain ${var}
-	JSON      string            // request body, sent as application/json
-	Form      string            // request body, sent as application/x-www-form-urlencoded
+	Path      string // may contain ${var}
+	JSON      string // request body, sent as application/json
+	Form      string // request body, sent as application/x-www-form-urlencoded
+	Raw       []byte // request body sent as is, with RawType as Content-Type
+	RawType   string
 	Header    map[string]string // values may contain ${var}
 	Save      map[string]string // var name → JSON path ("id", "0.id") or "$body" for the raw body
 	Opaque    []string          // JSON paths compared by shape only (random by design), or "$body"
@@ -157,6 +159,8 @@ func (r *side) do(ctx context.Context, s Step) (*response, error) {
 			return nil, err
 		}
 		body, contentType = strings.NewReader(form), "application/x-www-form-urlencoded"
+	case s.Raw != nil:
+		body, contentType = bytes.NewReader(s.Raw), s.RawType
 	}
 	req, err := http.NewRequestWithContext(ctx, s.Method, r.t.baseURL()+path, body)
 	if err != nil {
@@ -405,6 +409,11 @@ func compareResponses(s Step, a, b *response, aliasA, aliasB map[string]string) 
 	case s.Binary:
 	case s.CSV:
 		out = append(out, diffCSV(a.body, b.body)...)
+	case isJSON(a.header) && len(a.body) > 0 && !json.Valid(a.body) && !json.Valid(b.body):
+		// Java labels some plain strings as JSON (tokens, file names): compare the bytes.
+		if !bytes.Equal(a.body, b.body) {
+			out = append(out, fmt.Sprintf("body: A=%q B=%q", clip(a.body), clip(b.body)))
+		}
 	case isJSON(a.header) && len(a.body) > 0:
 		diffs, err := diffJSON(a.body, b.body, jsonOptions{
 			opaque: s.Opaque, unordered: s.Unordered, aliasA: aliasA, aliasB: aliasB,

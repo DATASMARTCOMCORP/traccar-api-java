@@ -1,7 +1,7 @@
 # SIR server: Java → Go migration plan
 
 Status: **approved**. Steps 0 (inventory, `inventory/results/`), 1 (harness), 2 (foundation),
-3 (auth and sessions) and 4 (read-only API) are done. Decisions and findings are in section 8.
+3 (auth and sessions), 4 (read-only API) and 5 (write API) are done. Decisions and findings are in section 8.
 
 ## 1. Goals and hard constraints
 
@@ -348,3 +348,37 @@ Not done in Step 4:
 - `/api/server/geocode`: Step 9, with geocoders
 - `/api/server/cache`: a dump of Java objects, which Go won't reproduce
 - the FindHub command sender
+
+### Step 5 (write API), 2026-10-15
+
+Gate passed. Java vs Go match in responses and database rows, row ids included:
+- **`crud`** (8 scenarios, 143 steps): the library from an empty database.
+- **`write`** (6 scenarios, 98 steps): everything else in Step 5.
+
+Request bodies are read the way Jackson reads them, from an explicit property table per Java
+class:
+- unknown properties fail, except on `Server` and `Command`, and `@JsonIgnore`d properties are
+  dropped;
+- Jackson's scalar coercions apply ("7" to 7, 3.9 to 3, 1 to true);
+- setters keep their side effects (trimming, password hashing, the iCal check);
+- an explicit null fails in a dereferencing setter;
+- an absent `NOT NULL` property fails at insert time.
+
+Java behaviors this step had to reproduce:
+- A create that fails on a `NOT NULL` column still uses an id sequence value, so later ids
+  shift. Go consumes one too.
+- `PUT /api/<entity>/abc` succeeds: Java's update never reads the path id, and updates the id
+  in the body.
+- Body mapping errors are 400 with `text/plain`. Empty 404s carry Jetty's HTML error page
+  Content-Type, but only for GET and POST.
+- Updating a missing row is not an error, and link tables accept duplicate rows.
+- A command sent to a group queues the devices in a different order on every Java run (a
+  HashSet of identity-hashed devices). Go uses id order; the harness tests a one-device group.
+
+Not done in Step 5, because it needs later steps:
+- live command delivery to connected devices (Step 6);
+- SMS commands, push command senders, password-reset e-mail, notification tests and
+  computed-attribute tests (Step 9).
+
+The SMS and push command paths answer 501 in Go until then. The server reboot endpoint is not
+ported.
