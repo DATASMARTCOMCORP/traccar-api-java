@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/hmac"
@@ -59,6 +60,9 @@ type Step struct {
 
 	// Device traffic.
 	Device *Traffic
+
+	// Sleep waits on each side (for timeouts) and compares nothing.
+	Sleep time.Duration
 }
 
 // Traffic sends raw device messages to a protocol port, like a tracker would.
@@ -139,6 +143,10 @@ func (r *side) do(ctx context.Context, s Step) (*response, error) {
 	defer func() { r.scope = nil }()
 	if s.Device != nil {
 		return r.traffic(ctx, s.Device)
+	}
+	if s.Sleep > 0 {
+		time.Sleep(s.Sleep)
+		return &response{header: http.Header{}}, nil
 	}
 	path, err := r.expand(s.Path)
 	if err != nil {
@@ -313,16 +321,25 @@ func (r *side) traffic(ctx context.Context, tr *Traffic) (*response, error) {
 			if err != nil {
 				return nil, err
 			}
-			// "POST <path>\n<form body>" posts like the SIR clients; anything else is a GET.
+			// "POST <path>\n<form body>" posts like the SIR clients, "JSON <path>\n<body>"
+			// posts JSON, "RAW <request>" writes the bytes on a new connection; anything else
+			// is a GET.
 			var resp *http.Response
-			if rest, ok := strings.CutPrefix(msg, "POST "); ok {
+			if rest, ok := strings.CutPrefix(msg, "RAW "); ok {
+				resp, err = rawRequest(addr, rest)
+			} else if rest, ok := strings.CutPrefix(msg, "POST "); ok {
 				path, body, _ := strings.Cut(rest, "\n")
 				resp, err = client.Post("http://"+addr+path, "application/x-www-form-urlencoded", strings.NewReader(body))
+			} else if rest, ok := strings.CutPrefix(msg, "JSON "); ok {
+				path, body, _ := strings.Cut(rest, "\n")
+				resp, err = client.Post("http://"+addr+path, "application/json", strings.NewReader(body))
 			} else {
 				resp, err = client.Get("http://" + addr + msg)
 			}
 			if err != nil {
-				return nil, err
+				// The server closed the connection without answering (a decoder error).
+				out.body = fmt.Appendf(out.body, "closed\n")
+				continue
 			}
 			data, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
@@ -357,6 +374,27 @@ func (r *side) traffic(ctx context.Context, tr *Traffic) (*response, error) {
 		return nil, fmt.Errorf("unknown transport %q", tr.Transport)
 	}
 	return out, nil
+}
+
+// rawRequest sends request bytes as they are (a device's malformed or non-ASCII
+// request line) on a new connection and reads one response.
+func rawRequest(addr, request string) (*http.Response, error) {
+	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
+	if _, err := conn.Write([]byte(request)); err != nil {
+		return nil, err
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(resp.Body)
+	resp.Body = io.NopCloser(bytes.NewReader(data))
+	return resp, err
 }
 
 // headersCompared are the response headers clients depend on. Everything else (Date,

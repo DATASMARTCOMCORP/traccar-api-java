@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -30,9 +31,22 @@ var protocols = []struct {
 	{"atrack", map[string]string{"atrack.custom": "true"}},
 }
 
-// bufferingThreshold is server.buffering.threshold: fixes are held in memory this long
-// before processing, where a database snapshot can't see them.
+// bufferingThreshold is server.buffering.threshold (as in sir-dev.xml): fixes are held in
+// memory this long before processing, where a database snapshot can't see them. A suite
+// may override it (see bufferWait).
 const bufferingThreshold = 5 * time.Second
+
+// bufferWait is how long to wait after device traffic: the suite's buffering threshold
+// plus a second.
+func bufferWait(overrides map[string]string) time.Duration {
+	threshold := bufferingThreshold
+	if v, ok := overrides["server.buffering.threshold"]; ok {
+		if ms, err := strconv.Atoi(v); err == nil {
+			threshold = time.Duration(ms) * time.Millisecond
+		}
+	}
+	return threshold + time.Second
+}
 
 // target is one server under test: the Java reference jar or the Go binary. Both read
 // the same XML config file, which also exercises config-format compatibility.
@@ -51,13 +65,14 @@ type target struct {
 }
 
 type launch struct {
-	kind     string
-	javaJar  string
-	goBin    string
-	repo     string // repository root, for the Liquibase changelog
-	tz       string
-	cluster  *cluster
-	workRoot string
+	overrides map[string]string // the suite's config entries, over the defaults
+	kind      string
+	javaJar   string
+	goBin     string
+	repo      string // repository root, for the Liquibase changelog
+	tz        string
+	cluster   *cluster
+	workRoot  string
 }
 
 func newTarget(l launch, label, db string) (*target, error) {
@@ -121,6 +136,7 @@ func (t *target) writeConfig(l launch) error {
 		}
 	}
 	entries["protocols.enable"] = strings.Join(names, ",")
+	maps.Copy(entries, l.overrides)
 
 	var b strings.Builder
 	b.WriteString("<?xml version='1.0' encoding='UTF-8'?>\n")

@@ -26,12 +26,24 @@ It exits 0 when every scenario matches, 1 on differences, and 2 on setup errors.
 | `crud` | an empty database | the `full` library without device traffic and reports: registration, users, tokens, every entity's create/update/delete, permissions, command queueing, deletes | **passes** (Step 5 gate) |
 | `write` | the `read` seed plus users with limits | Step 5: accumulators, image upload, sharing, password update, position deletes, privilege and read-only rules, manager and device limits, group cycles, non-admin links, group commands, and how request bodies are read (coercions, unknown properties, nulls) | **passes** (Step 5 gate) |
 | `read` | the `full` library (minus deletes) run through Java as the seed: every role, groups 4 levels deep, permissions, positions and events from device traffic | Step 4: every read-only endpoint per role and parameter (all, userId, groupId, deviceId, uniqueId/id lists, keyword, limit/offset, excludeAttributes), single objects, positions, events, statistics, audit, permissions, command and notification types | **passes** (Step 4 gate) |
+| `ingest` | devices, groups, geofences (two unparseable), calendars, maintenance, linked devices and queued commands created by Java; production's config (no buffering) | Step 6: OsmAnd in every input form and error path, `OsmAndProtocolDecoderTest`'s vectors, the in-house clients, queued commands, every event detector, filters, calendars, proximity, engine hours | **passes** (Step 6 gate) |
+| `buffered` | one device; `server.buffering.threshold` 5 s | release order of buffered fixes on one connection | **passes** |
+| `status` | one device; `event.status.enable`, `status.timeout` 4 s, `database.registerUnknown` | status events, the timeout to unknown, registration of unknown devices | **passes** |
 
 A suite's **seed** runs once, through Java, on the template database before both sides are
 cloned. Both sides then start with the same Java-made rows (password hashes, the
 `tc_keystore` key pair), and the seed's variables (`${javaToken}`, `${admin}`) are visible
 everywhere. So a suite can test an endpoint Go has before Go has the endpoints that
 create its data.
+
+A suite may override config entries (`suite.config`), for example production's
+`server.buffering.threshold=0`. The wait after device traffic follows the suite's threshold.
+
+OsmAnd messages are written as `path?query` (GET), `POST path\nform body`, `JSON path\nbody`
+(Content-Type `application/json`) or `RAW <bytes>` (sent as is on a new connection, for
+request lines a client library would refuse to send). A reply is `status "body"`, or `closed`
+when the server closed the connection without answering. A `Sleep` step waits on each side,
+for timeouts.
 
 A step marked **cross** expands variables with the other side's values. A uses the token B
 issued, and B uses A's: this is how the harness checks that each server accepts the

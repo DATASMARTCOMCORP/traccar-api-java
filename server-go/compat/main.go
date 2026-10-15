@@ -119,7 +119,7 @@ func run() error {
 		defer pg.stop()
 	}
 
-	base := launch{javaJar: *jar, goBin: *goBin, repo: repoAbs, tz: *tz, cluster: pg, workRoot: workDir}
+	base := launch{overrides: suite.config, javaJar: *jar, goBin: *goBin, repo: repoAbs, tz: *tz, cluster: pg, workRoot: workDir}
 
 	// The schema always comes from Java's Liquibase run, never from Go: Go doesn't run
 	// migrations. Both sides then start from byte-identical copies.
@@ -144,7 +144,7 @@ func run() error {
 	for i, s := range suite.seed {
 		resp, err := seed.do(ctx, s)
 		if s.Device != nil {
-			time.Sleep(bufferingThreshold + time.Second)
+			time.Sleep(bufferWait(suite.config))
 			if _, err := waitQuiet(ctx, tmplConn); err != nil {
 				tmplConn.Close(ctx)
 				tmpl.stop()
@@ -200,7 +200,7 @@ func run() error {
 	}
 	runs[0].other, runs[1].other = runs[1], runs[0]
 
-	failed := runScenarios(ctx, suite.scenarios, filter, runs[0], runs[1])
+	failed := runScenarios(ctx, suite.scenarios, filter, bufferWait(suite.config), runs[0], runs[1])
 
 	if *keep {
 		fmt.Printf("\nkept work directory %s\n  A (%s): %s\n  B (%s): %s\n  logs: %s, %s\n",
@@ -220,7 +220,7 @@ func withKind(l launch, kind string) launch {
 
 // runScenarios runs every step on A then B, compares, and after each scenario waits for
 // both databases to settle and compares them. It returns the number of failed scenarios.
-func runScenarios(ctx context.Context, scenarios []Scenario, filter *regexp.Regexp, a, b *side) int {
+func runScenarios(ctx context.Context, scenarios []Scenario, filter *regexp.Regexp, wait time.Duration, a, b *side) int {
 	failed, ran := 0, 0
 	for _, sc := range scenarios {
 		if !filter.MatchString(sc.Name) {
@@ -247,7 +247,7 @@ func runScenarios(ctx context.Context, scenarios []Scenario, filter *regexp.Rege
 				// Fixes are buffered, then processed asynchronously after the ACK. Wait out
 				// the buffer, then until both databases settle, so the next step sees the
 				// same state on both sides.
-				time.Sleep(bufferingThreshold + time.Second)
+				time.Sleep(wait)
 				for _, r := range []*side{a, b} {
 					if _, err := waitQuiet(ctx, r.db); err != nil {
 						problems = append(problems, fmt.Sprintf("%s: %s: %v", label, r.t.label, err))
@@ -293,6 +293,9 @@ func describe(s Step) string {
 	}
 	if s.Device != nil {
 		return s.Device.Protocol + "/" + s.Device.Transport
+	}
+	if s.Sleep > 0 {
+		return "sleep " + s.Sleep.String()
 	}
 	return s.Method + " " + s.Path
 }
