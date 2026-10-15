@@ -344,7 +344,7 @@ Java quirks reproduced:
 
 Not done in Step 4:
 - position exports (CSV, GPX, KML): Step 9, with reports
-- `GET /api/positions?geofenceId=`: needs geofence geometry and answers 501 until then
+- ~~`GET /api/positions?geofenceId=`~~: done in Step 6, with the geofence geometry
 - `/api/server/geocode`: Step 9, with geocoders
 - `/api/server/cache`: a dump of Java objects, which Go won't reproduce
 - the FindHub command sender

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/geo"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/model"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/store"
@@ -336,7 +337,8 @@ func (a *API) getPositions(w http.ResponseWriter, r *request) error {
 	if err != nil {
 		return err
 	}
-	if _, err := qInt64(r, "geofenceId"); err != nil {
+	geofenceID, err := qInt64(r, "geofenceId")
+	if err != nil {
 		return err
 	}
 	from, err := qDate(r, "from")
@@ -369,13 +371,33 @@ func (a *API) getPositions(w http.ResponseWriter, r *request) error {
 			if err := a.checkRestriction(r, func(x restrictions) bool { return x.disableReports }); err != nil {
 				return err
 			}
-			if r.URL.Query().Get("geofenceId") != "" && r.URL.Query().Get("geofenceId") != "0" {
-				// Geofence geometry is ported with the geofence handling (MIGRATION.md).
-				return errStatus(http.StatusNotImplemented, "geofenceId filter not ported yet")
+			// The geofence isn't permission-checked, and an unknown one filters nothing.
+			var geofence *model.Geofence
+			if geofenceID != 0 {
+				g, err := store.Get[model.Geofence](r.Context(), a.st, geofenceID)
+				switch {
+				case err == nil:
+					geofence = &g
+				case !errors.Is(err, store.ErrNotFound):
+					return err
+				}
 			}
 			positions, err := a.st.Positions(r.Context(), deviceID, from, to, a.opts.MaxPositions)
 			if err != nil {
 				return err
+			}
+			if geofence != nil {
+				var inside []model.Position
+				for _, p := range positions {
+					in, err := geo.GeofenceContains(geofence, p.Latitude, p.Longitude, p.Altitude)
+					if err != nil {
+						return err
+					}
+					if in {
+						inside = append(inside, p)
+					}
+				}
+				positions = inside
 			}
 			return writeList(w, positions)
 		}

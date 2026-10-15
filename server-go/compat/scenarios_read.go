@@ -137,6 +137,13 @@ func readSuite() suite {
 			get("admin", "/api/positions"),
 			get("admin", "/api/positions?deviceId=${osmand}"),
 			get("admin", "/api/positions?deviceId=${osmand}&"+day),
+			// Positions inside a geofence (no permission check on it), and an unknown
+			// geofence, which filters nothing.
+			get("admin", "/api/positions?deviceId=${osmand}&geofenceId=${home}&"+day),
+			get("admin", "/api/positions?deviceId=${osmand}&geofenceId=${zone}&"+day),
+			get("user", "/api/positions?deviceId=${osmand}&geofenceId=${dz}&"+day),
+			get("admin", "/api/positions?deviceId=${osmand}&geofenceId=999999&"+day),
+			get("admin", "/api/positions?deviceId=${osmand}&geofenceId=${home}"),
 			get("admin", "/api/positions?deviceId=${st4}&from=2024-07-29T00:00:00Z&to=2024-07-30T00:00:00Z"),
 			get("admin", "/api/positions?id=${lastPosition}"),
 			get("admin", "/api/positions?id=99999"),
