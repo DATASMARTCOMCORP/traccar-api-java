@@ -243,15 +243,20 @@ func (s *Store) UpdateDevicePosition(ctx context.Context, d *model.Device) error
 }
 
 // UpdateDeviceMotion writes the motion state of the current trip logic
-// (MotionEventHandler, including the device attributes).
-func (s *Store) UpdateDeviceMotion(ctx context.Context, d *model.Device) error {
-	a, err := attrsValue(&d.Attributes)
-	if err != nil {
-		return err
+// (MotionEventHandler). Java also rewrites the attributes column, from its cached device,
+// which holds the current attributes; Go writes it only when withAttributes is set (the
+// handler changed them), so a copy read earlier can't undo a newer change.
+func (s *Store) UpdateDeviceMotion(ctx context.Context, d *model.Device, withAttributes bool) error {
+	columns := []string{"motionstreak", "motiontime", "motionlatitude", "motionlongitude"}
+	values := []any{d.MotionStreak, s.ts(&d.MotionTime), d.MotionLatitude, d.MotionLongitude}
+	if withAttributes {
+		a, err := attrsValue(&d.Attributes)
+		if err != nil {
+			return err
+		}
+		columns, values = append(columns, "attributes"), append(values, a)
 	}
-	return s.update(ctx, "tc_devices", d.ID,
-		[]string{"motionstreak", "motiontime", "motionlatitude", "motionlongitude", "attributes"},
-		[]any{d.MotionStreak, s.ts(&d.MotionTime), d.MotionLatitude, d.MotionLongitude, a})
+	return s.update(ctx, "tc_devices", d.ID, columns, values)
 }
 
 // UpdateDeviceMotionLegacy writes the motion state of the old trip logic

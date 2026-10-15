@@ -248,7 +248,8 @@ func TestRoundTripJavaRows(t *testing.T) {
 		}{
 			{[]string{"status", "lastupdate"}, db.st.UpdateDeviceStatus},
 			{[]string{"positionid"}, db.st.UpdateDevicePosition},
-			{[]string{"motionstreak", "motiontime", "motionlatitude", "motionlongitude"}, db.st.UpdateDeviceMotion},
+			{[]string{"motionstreak", "motiontime", "motionlatitude", "motionlongitude", "attributes"},
+				func(ctx context.Context, d *model.Device) error { return db.st.UpdateDeviceMotion(ctx, d, true) }},
 			{[]string{"motionstate", "motionpositionid", "motiondistance"}, db.st.UpdateDeviceMotionLegacy},
 			{[]string{"overspeedstate", "overspeedtime", "overspeedgeofenceid"}, db.st.UpdateDeviceOverspeed},
 		}
