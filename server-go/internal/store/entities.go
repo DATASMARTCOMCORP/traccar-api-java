@@ -81,13 +81,15 @@ func tableOf[T Entity]() *table[T] {
 
 // All returns every row of T's table, ordered by id.
 func All[T Entity](ctx context.Context, s *Store) ([]T, error) {
-	return query(ctx, s, tableOf[T](), " ORDER BY id")
+	t := tableOf[T]()
+	return query(ctx, s, t, t.selectSQL()+" ORDER BY id")
 }
 
 // Get returns the row with the given id, or ErrNotFound. Ids are Java longs while most id
 // columns are integer, so the parameter is bigint: an out-of-range id is simply not found.
 func Get[T Entity](ctx context.Context, s *Store, id int64) (T, error) {
-	rows, err := query(ctx, s, tableOf[T](), " WHERE id = $1::bigint", id)
+	t := tableOf[T]()
+	rows, err := query(ctx, s, t, t.selectSQL()+" WHERE id = $1::bigint", id)
 	if err != nil {
 		var zero T
 		return zero, err
@@ -99,8 +101,9 @@ func Get[T Entity](ctx context.Context, s *Store, id int64) (T, error) {
 	return rows[0], nil
 }
 
-func query[T any](ctx context.Context, s *Store, t *table[T], where string, args ...any) ([]T, error) {
-	rows, err := s.pool.Query(ctx, t.selectSQL()+where, args...)
+// query runs a SELECT of t's columns (see selectSQL) and scans the rows.
+func query[T any](ctx context.Context, s *Store, t *table[T], sql string, args ...any) ([]T, error) {
+	rows, err := s.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("select %s: %w", t.name, err)
 	}

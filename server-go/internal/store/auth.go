@@ -17,7 +17,7 @@ import (
 // returns the first the database yields, as Java's getObject does.
 func (s *Store) UserByLogin(ctx context.Context, name string) (model.User, error) {
 	name = strings.ToLower(strings.TrimSpace(name))
-	rows, err := query(ctx, s, userTable, " WHERE LOWER(email) = $1 OR LOWER(login) = $1 LIMIT 1", name)
+	rows, err := query(ctx, s, userTable, userTable.selectSQL()+" WHERE LOWER(email) = $1 OR LOWER(login) = $1 LIMIT 1", name)
 	if err != nil {
 		return model.User{}, err
 	}
