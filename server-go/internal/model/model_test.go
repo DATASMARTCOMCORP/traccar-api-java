@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -228,5 +231,57 @@ func TestNetworkRoundTrip(t *testing.T) {
 	}
 	if got, _ := x.MarshalJSON(); string(got) != `{}` {
 		t.Errorf("got %s", got)
+	}
+}
+
+// TestHashSetOrderJava compares with HashSet iteration orders printed by a real JDK
+// (testdata/HashOrder.java), including the BaseProtocol copy-and-add-"custom" pattern.
+func TestHashSetOrderJava(t *testing.T) {
+	data, err := os.ReadFile("testdata/java_hashset.tsv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	split := func(s string) []string {
+		if s == "" {
+			return nil
+		}
+		return strings.Split(s, "|")
+	}
+	n := 0
+	for line := range strings.Lines(string(data)) {
+		f := strings.Split(strings.TrimRight(line, "\n"), "\t")
+		in, want := split(f[1]), split(f[2])
+		s := NewHashSet()
+		for _, v := range in {
+			s.Add(v)
+		}
+		if f[0] == "copy" {
+			s = NewHashSetOf(s.Items())
+			s.Add("custom")
+		}
+		if got := s.Items(); strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Errorf("%s %v:\n got  %v\n want %v", f[0], in, got, want)
+		}
+		n++
+	}
+	if n < 80 {
+		t.Errorf("only %d vectors", n)
+	}
+}
+
+func TestTypesMatchJava(t *testing.T) {
+	re := regexp.MustCompile(`public static final String TYPE_[A-Z0-9_]+ = "([^"]+)";`)
+	for file, table := range map[string][]string{"Command.java": CommandTypes, "Event.java": EventTypes} {
+		src, err := os.ReadFile(filepath.Join("..", "..", "..", "src", "main", "java", "org", "traccar", "model", file))
+		if err != nil {
+			t.Skip("Java sources not found:", err)
+		}
+		var java []string
+		for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+			java = append(java, m[1])
+		}
+		if !slices.Equal(java, table) {
+			t.Errorf("%s: table %v, Java %v", file, table, java)
+		}
 	}
 }

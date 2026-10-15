@@ -1,6 +1,9 @@
 package model
 
-import "strconv"
+import (
+	"encoding/base64"
+	"strconv"
+)
 
 // API JSON of entities, as Jackson writes the Java classes: every property is present
 // (nulls included), doubles use Java's format (0.0, 1.0E7), dates use Time's format, and
@@ -143,5 +146,276 @@ func (s ServerInfo) MarshalJSON() ([]byte, error) {
 	o.boolean("openIdEnabled", s.OpenIDEnabled)
 	o.boolean("openIdForce", s.OpenIDForce)
 	o.str("version", s.Version)
+	return o.end()
+}
+
+func (o *object) idList(name string, v []int64) {
+	o.key(name)
+	if v == nil {
+		o.b = append(o.b, "null"...)
+		return
+	}
+	o.b = append(o.b, '[')
+	for i, id := range v {
+		if i > 0 {
+			o.b = append(o.b, ',')
+		}
+		o.b = strconv.AppendInt(o.b, id, 10)
+	}
+	o.b = append(o.b, ']')
+}
+
+func (o *object) bytes(name string, v []byte) {
+	o.key(name)
+	if v == nil {
+		o.b = append(o.b, "null"...)
+		return
+	}
+	// Jackson writes byte[] as standard base64.
+	o.b = appendString(o.b, base64.StdEncoding.EncodeToString(v))
+}
+
+func (d Device) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.int("id", d.ID)
+	o.attributes("attributes", &d.Attributes)
+	o.int("groupId", d.GroupID)
+	o.int("calendarId", d.CalendarID)
+	o.str("name", d.Name)
+	o.str("uniqueId", d.UniqueID)
+	status := StatusOffline // Device.getStatus: null reads as offline
+	if d.Status != nil {
+		status = *d.Status
+	}
+	o.str("status", status)
+	o.time("lastUpdate", d.LastUpdate)
+	o.int("positionId", d.PositionID)
+	o.nullStr("phone", d.Phone)
+	o.nullStr("model", d.Model)
+	o.nullStr("contact", d.Contact)
+	o.nullStr("category", d.Category)
+	o.boolean("disabled", d.Disabled)
+	o.time("expirationTime", d.ExpirationTime)
+	return o.end()
+}
+
+func (g Group) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.int("id", g.ID)
+	o.attributes("attributes", &g.Attributes)
+	o.int("groupId", g.GroupID)
+	o.str("name", g.Name)
+	return o.end()
+}
+
+func (g Geofence) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.int("id", g.ID)
+	o.attributes("attributes", &g.Attributes)
+	o.int("calendarId", g.CalendarID)
+	o.str("name", g.Name)
+	o.nullStr("description", g.Description)
+	o.str("area", g.Area)
+	return o.end()
+}
+
+func (n Notification) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.int("id", n.ID)
+	o.attributes("attributes", &n.Attributes)
+	o.nullStr("description", n.Description)
+	o.int("calendarId", n.CalendarID)
+	o.boolean("always", n.Always)
+	o.str("type", n.Type)
+	o.int("commandId", n.CommandID)
+	o.nullStr("notificators", n.Notificators)
+	return o.end()
+}
+
+func (d Driver) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.int("id", d.ID)
+	o.attributes("attributes", &d.Attributes)
+	o.str("name", d.Name)
+	o.str("uniqueId", d.UniqueID)
+	return o.end()
+}
+
+func (a ComputedAttribute) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.int("id", a.ID)
+	o.str("description", a.Description)
+	o.str("attribute", a.Attribute)
+	o.str("expression", a.Expression)
+	o.str("type", a.Type)
+	o.int("priority", int64(a.Priority))
+	return o.end()
+}
+
+func (c Calendar) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.int("id", c.ID)
+	o.attributes("attributes", &c.Attributes)
+	o.str("name", c.Name)
+	o.bytes("data", c.Data)
+	return o.end()
+}
+
+func (c Command) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.int("id", c.ID)
+	o.attributes("attributes", &c.Attributes)
+	o.int("deviceId", 0) // only set on commands being sent, never stored
+	o.str("type", c.Type)
+	o.boolean("textChannel", c.TextChannel)
+	o.str("description", c.Description)
+	return o.end()
+}
+
+func (q QueuedCommand) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.int("id", q.ID)
+	o.attributes("attributes", &q.Attributes)
+	o.int("deviceId", q.DeviceID)
+	o.str("type", q.Type)
+	o.boolean("textChannel", q.TextChannel)
+	return o.end()
+}
+
+func (m Maintenance) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.int("id", m.ID)
+	o.attributes("attributes", &m.Attributes)
+	o.str("name", m.Name)
+	o.str("type", m.Type)
+	o.double("start", m.Start)
+	o.double("period", m.Period)
+	return o.end()
+}
+
+func (r Order) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.int("id", r.ID)
+	o.attributes("attributes", &r.Attributes)
+	o.str("uniqueId", r.UniqueID)
+	o.nullStr("description", r.Description)
+	o.nullStr("fromAddress", r.FromAddress)
+	o.nullStr("toAddress", r.ToAddress)
+	return o.end()
+}
+
+func (r Report) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.int("id", r.ID)
+	o.attributes("attributes", &r.Attributes)
+	o.int("calendarId", r.CalendarID)
+	o.str("type", r.Type)
+	o.str("description", r.Description)
+	return o.end()
+}
+
+func (p Position) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.int("id", p.ID)
+	o.attributes("attributes", &p.Attributes)
+	o.int("deviceId", p.DeviceID)
+	o.nullStr("protocol", p.Protocol)
+	o.time("serverTime", p.ServerTime)
+	o.time("deviceTime", p.DeviceTime)
+	o.time("fixTime", p.FixTime)
+	o.boolean("valid", p.Valid)
+	o.double("latitude", p.Latitude)
+	o.double("longitude", p.Longitude)
+	o.double("altitude", p.Altitude)
+	o.double("speed", p.Speed)
+	o.double("course", p.Course)
+	o.nullStr("address", p.Address)
+	o.double("accuracy", p.Accuracy)
+	o.key("network")
+	if p.Network == nil {
+		o.b = append(o.b, "null"...)
+	} else {
+		o.b = p.Network.appendJSON(o.b)
+	}
+	o.idList("geofenceIds", p.GeofenceIDs)
+	return o.end()
+}
+
+func (e Event) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.int("id", e.ID)
+	o.attributes("attributes", &e.Attributes)
+	o.int("deviceId", e.DeviceID)
+	o.str("type", e.Type)
+	o.time("eventTime", e.EventTime)
+	o.int("positionId", e.PositionID)
+	o.int("geofenceId", e.GeofenceID)
+	o.int("maintenanceId", e.MaintenanceID)
+	return o.end()
+}
+
+func (s Statistics) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.int("id", s.ID)
+	o.attributes("attributes", &s.Attributes)
+	o.time("captureTime", s.CaptureTime)
+	o.int("activeUsers", int64(s.ActiveUsers))
+	o.int("activeDevices", int64(s.ActiveDevices))
+	o.int("requests", int64(s.Requests))
+	o.int("messagesReceived", int64(s.MessagesReceived))
+	o.int("messagesStored", int64(s.MessagesStored))
+	o.int("mailSent", int64(s.MailSent))
+	o.int("smsSent", int64(s.SmsSent))
+	o.int("geocoderRequests", int64(s.GeocoderRequests))
+	o.int("geolocationRequests", int64(s.GeolocationRequests))
+	if s.Protocols == nil {
+		o.null("protocols")
+	} else {
+		o.attributes("protocols", s.Protocols)
+	}
+	return o.end()
+}
+
+// AuditEntry is an Action as GET /api/audit returns it, with the user's e-mail.
+type AuditEntry struct {
+	Action
+	UserEmail *string
+}
+
+func (a AuditEntry) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.int("id", a.ID)
+	o.attributes("attributes", &a.Attributes)
+	o.time("actionTime", a.ActionTime)
+	o.nullStr("address", a.Address)
+	o.int("userId", a.UserID)
+	o.str("actionType", a.ActionType)
+	o.nullStr("objectType", a.ObjectType)
+	o.int("objectId", a.ObjectID)
+	o.nullStr("userEmail", a.UserEmail)
+	return o.end()
+}
+
+// Typed is {"type": ...}, used by the type and notificator lists.
+type Typed struct{ Type string }
+
+func (t Typed) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.str("type", t.Type)
+	return o.end()
+}
+
+// Permission is one link-table row as the API returns it: {"<owner>Id": n, "<property>Id": m}.
+type Permission struct {
+	OwnerKey    string
+	OwnerID     int64
+	PropertyKey string
+	PropertyID  int64
+}
+
+func (p Permission) MarshalJSON() ([]byte, error) {
+	o := newObject()
+	o.int(p.OwnerKey, p.OwnerID)
+	o.int(p.PropertyKey, p.PropertyID)
 	return o.end()
 }
