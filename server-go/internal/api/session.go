@@ -24,6 +24,7 @@ func (a *API) routes() {
 	a.handle("GET /api/session/openid/callback", public, openIDDisabled)
 
 	a.readRoutes()
+	a.writeRoutes()
 
 	// Anything else under /api is Jersey's 404, which still carries the CORS headers.
 	a.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {

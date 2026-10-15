@@ -46,6 +46,12 @@ type Options struct {
 	// PushCommands: a push command sender is configured (command.client.serviceAccount
 	// or notificator.traccar.key).
 	PushCommands bool
+
+	DefaultDeviceLimit    int    // users.defaultDeviceLimit, for self-registered users
+	DefaultExpirationDays int    // users.defaultExpirationDays
+	MediaPath             string // media.path
+	ShareCommands         bool   // web.shareDevice.commands
+	ShareReports          bool   // web.shareDevice.reports
 }
 
 // OptionsFromConfig reads the web and feature keys with Java's defaults.
@@ -62,14 +68,27 @@ func OptionsFromConfig(c *config.Config) (Options, error) {
 	if err != nil {
 		return Options{}, err
 	}
+	deviceLimit, err := c.Int("users.defaultDeviceLimit", -1)
+	if err != nil {
+		return Options{}, err
+	}
+	expirationDays, err := c.Int("users.defaultExpirationDays", 0)
+	if err != nil {
+		return Options{}, err
+	}
 	var notificators []string
 	if v, ok := c.Lookup("notificator.types"); ok {
 		notificators = strings.Split(v, ",")
 	}
 	return Options{
-		Notificators:   notificators,
-		PositionPeriod: time.Duration(period) * time.Second,
-		MaxPositions:   maxPositions,
+		DefaultDeviceLimit:    deviceLimit,
+		DefaultExpirationDays: expirationDays,
+		MediaPath:             c.String("media.path", "./media"),
+		ShareCommands:         c.Bool("web.shareDevice.commands", false),
+		ShareReports:          c.Bool("web.shareDevice.reports", false),
+		Notificators:          notificators,
+		PositionPeriod:        time.Duration(period) * time.Second,
+		MaxPositions:          maxPositions,
 		ProtocolEnabled: func(name string) bool {
 			port, err := c.Port(name)
 			return err == nil && port > 0 && c.ProtocolEnabled(name)
@@ -202,6 +221,10 @@ func (a *API) handleText(pattern string, h handlerFunc) {
 	})
 }
 
+// jettyErrorPage is the Content-Type of Jetty's HTML error page, which Java clients get
+// for an empty 4xx response.
+const jettyErrorPage = "text/html;charset=iso-8859-1"
+
 // httpError carries a status code (Java's WebApplicationException).
 type httpError struct {
 	status int
@@ -245,6 +268,13 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
 	// where Jersey fails before reaching a resource method (no match, 406, 415), which have
 	// none. The body is a short message either way (MIGRATION.md: no stack traces).
 	switch {
+	case he != nil && he.contentType == jettyErrorPage:
+		// Jetty writes its HTML error page only for GET, POST and HEAD.
+		if r.Method == http.MethodGet || r.Method == http.MethodPost || r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", he.contentType)
+		} else {
+			w.Header()["Content-Type"] = nil
+		}
 	case he != nil && he.contentType != "":
 		w.Header().Set("Content-Type", he.contentType)
 	case status == http.StatusNotFound || status == http.StatusNotAcceptable ||
@@ -347,18 +377,7 @@ func javaHostAddress(host string) string {
 
 // audit stores an action row (LogAction). Like Java, a failure is logged, not returned.
 func (a *API) audit(ctx context.Context, r *http.Request, actionType string, userID int64, objectType string, objectID int64) {
-	act := model.Action{
-		ActionTime: model.NewTime(time.Now()),
-		UserID:     userID,
-		ActionType: actionType,
-		ObjectID:   objectID,
-	}
-	addr := remoteAddress(r)
-	act.Address = &addr
-	if objectType != "" {
-		act.ObjectType = &objectType
-	}
-	if err := store.Insert(ctx, a.st, &act); err != nil {
-		slog.Warn("failed to store action", "type", actionType, "err", err)
-	}
+	a.auditWith(ctx, r, actionType, userID, objectType, objectID, model.Attributes{})
 }
+
+func slogWarn(msg, actionType string, err error) { slog.Warn(msg, "type", actionType, "err", err) }

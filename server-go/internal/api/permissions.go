@@ -42,7 +42,7 @@ func (a *API) checkPermission(r *request, kind store.Kind, id int64) error {
 	var ok bool
 	var err error
 	switch kind {
-	case store.KindUser:
+	case store.KindUser, store.KindManagedUser:
 		ok, err = store.Exists[model.User](r.Context(), a.st, cond...)
 	case store.KindDevice:
 		ok, err = store.Exists[model.Device](r.Context(), a.st, cond...)

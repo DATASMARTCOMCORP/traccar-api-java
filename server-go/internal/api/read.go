@@ -20,6 +20,10 @@ type jsonMarshaler interface{ MarshalJSON() ([]byte, error) }
 
 // writeList writes a JSON array of entities.
 func writeList[T jsonMarshaler](w http.ResponseWriter, items []T) error {
+	return writeListStatus(w, http.StatusOK, items)
+}
+
+func writeListStatus[T jsonMarshaler](w http.ResponseWriter, status int, items []T) error {
 	b := []byte{'['}
 	for i, it := range items {
 		if i > 0 {
@@ -32,13 +36,14 @@ func writeList[T jsonMarshaler](w http.ResponseWriter, items []T) error {
 		b = append(b, data...)
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
 	_, err := w.Write(append(b, ']'))
 	return err
 }
 
 // errNoEntity is a 404 a Java resource returns without a body; Jetty then renders its
 // HTML error page, so that is the Content-Type clients get.
-var errNoEntity = &httpError{status: http.StatusNotFound, msg: "Not Found", contentType: "text/html;charset=iso-8859-1"}
+var errNoEntity = &httpError{status: http.StatusNotFound, msg: "Not Found", contentType: jettyErrorPage}
 
 // collection describes a resource built on Java's SimpleObjectResource (all, userId) or
 // ExtendedObjectResource (also groupId and deviceId).
