@@ -37,6 +37,15 @@ type Options struct {
 	EmailEnabled        bool          // mail.debug, or mail.smtp.host set
 	TextEnabled         bool          // sms.http.url or sms.aws.region set
 	GeocoderEnabled     bool          // geocoder.enable
+	Notificators        []string      // notificator.types
+	PositionPeriod      time.Duration // database.positionPeriod: latest positions newer than this
+	MaxPositions        int           // report.maxPositions
+	// ProtocolEnabled reports whether this server runs a protocol (enabled, with a port),
+	// as ServerManager.getProtocol does.
+	ProtocolEnabled func(name string) bool
+	// PushCommands: a push command sender is configured (command.client.serviceAccount
+	// or notificator.traccar.key).
+	PushCommands bool
 }
 
 // OptionsFromConfig reads the web and feature keys with Java's defaults.
@@ -45,7 +54,27 @@ func OptionsFromConfig(c *config.Config) (Options, error) {
 	if err != nil {
 		return Options{}, err
 	}
+	period, err := c.Int64("database.positionPeriod", int64(defaultPositionPeriod/time.Second))
+	if err != nil {
+		return Options{}, err
+	}
+	maxPositions, err := c.Int("report.maxPositions", defaultMaxPositions)
+	if err != nil {
+		return Options{}, err
+	}
+	var notificators []string
+	if v, ok := c.Lookup("notificator.types"); ok {
+		notificators = strings.Split(v, ",")
+	}
 	return Options{
+		Notificators:   notificators,
+		PositionPeriod: time.Duration(period) * time.Second,
+		MaxPositions:   maxPositions,
+		ProtocolEnabled: func(name string) bool {
+			port, err := c.Port(name)
+			return err == nil && port > 0 && c.ProtocolEnabled(name)
+		},
+		PushCommands:        c.Has("command.client.serviceAccount") || c.Has("notificator.traccar.key"),
 		Origin:              c.String("web.origin", ""),
 		ServiceAccountToken: c.String("web.serviceAccountToken", ""),
 		SessionTimeout:      time.Duration(timeout) * time.Second,
@@ -132,7 +161,10 @@ func (a *API) handle(pattern string, acc access, h handlerFunc) {
 
 // acceptsJSON reports whether an Accept header allows application/json. An absent or
 // unparseable header accepts anything, as in Jersey.
-func acceptsJSON(accept string) bool {
+func acceptsJSON(accept string) bool { return accepts(accept, "application", "json") }
+
+// accepts reports whether an Accept header allows type/subtype.
+func accepts(accept, typ, sub string) bool {
 	if strings.TrimSpace(accept) == "" {
 		return true
 	}
@@ -144,11 +176,30 @@ func acceptsJSON(accept string) bool {
 		if q, ok := params["q"]; ok && strings.Trim(q, "0.") == "" {
 			continue // q=0: explicitly not acceptable
 		}
-		if mt == "*/*" || mt == "application/*" || mt == "application/json" {
+		if mt == "*/*" || mt == typ+"/*" || mt == typ+"/"+sub {
 			return true
 		}
 	}
 	return false
+}
+
+// handleText registers a public text/plain endpoint (HealthResource).
+func (a *API) handleText(pattern string, h handlerFunc) {
+	a.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+		a.cors(w, r)
+		if !accepts(r.Header.Get("Accept"), "text", "plain") {
+			a.fail(w, r, errStatus(http.StatusNotAcceptable, "Not Acceptable"))
+			return
+		}
+		req := &request{Request: r}
+		if err := a.authenticate(req, public); err != nil {
+			a.fail(w, r, err)
+			return
+		}
+		if err := h(w, req); err != nil {
+			a.fail(w, r, err)
+		}
+	})
 }
 
 // httpError carries a status code (Java's WebApplicationException).
@@ -159,6 +210,8 @@ type httpError struct {
 	// fromResource marks errors raised inside an endpoint (e.g. its own 404), which Java
 	// sends with the endpoint's media type.
 	fromResource bool
+	// contentType overrides the Content-Type of the error response.
+	contentType string
 }
 
 func (e *httpError) Error() string { return e.msg }
@@ -191,8 +244,11 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
 	// Java labels error bodies with the endpoint's media type (application/json), except
 	// where Jersey fails before reaching a resource method (no match, 406, 415), which have
 	// none. The body is a short message either way (MIGRATION.md: no stack traces).
-	switch status {
-	case http.StatusNotFound, http.StatusNotAcceptable, http.StatusUnsupportedMediaType, http.StatusMethodNotAllowed:
+	switch {
+	case he != nil && he.contentType != "":
+		w.Header().Set("Content-Type", he.contentType)
+	case status == http.StatusNotFound || status == http.StatusNotAcceptable ||
+		status == http.StatusUnsupportedMediaType || status == http.StatusMethodNotAllowed:
 		if he == nil || !he.fromResource {
 			w.Header()["Content-Type"] = nil // also stops net/http from sniffing one
 			break

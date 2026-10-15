@@ -68,9 +68,12 @@ func run(ctx context.Context, args []string, stderr io.Writer) error {
 	defer st.Close()
 	slog.Info("database ready", "timezone", st.Location().String())
 
-	// Java resets every device to offline at startup (DeviceUtil.resetStatus). Go doesn't
-	// yet: while Java still serves devices against the same database, that would mark
-	// Java's connected devices offline. It moves here when Go owns the device ports (Step 6).
+	// Like Java at startup (DeviceUtil.resetStatus): every device is offline until it
+	// connects again. Go always runs device ports (the plan moves ports to Go before the
+	// API), so a Go restart means the same as a Java restart.
+	if err := st.ResetDeviceStatuses(ctx); err != nil {
+		return err
+	}
 
 	apiOpts, err := api.OptionsFromConfig(cfg)
 	if err != nil {

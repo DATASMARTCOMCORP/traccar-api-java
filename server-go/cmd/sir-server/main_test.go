@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func TestConfigPath(t *testing.T) {
@@ -83,6 +86,8 @@ func TestRunAgainstJavaDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The server writes at startup (device statuses), so run it on a copy.
+	u.Path = "/" + copyDatabase(t, u)
 	password, _ := u.User.Password()
 	logFile := filepath.Join(t.TempDir(), "server.log")
 	path := writeConfig(t, map[string]string{
@@ -131,4 +136,31 @@ func TestRunAgainstJavaDatabase(t *testing.T) {
 	if !strings.Contains(string(data), "stopping server") {
 		t.Errorf("no shutdown log:\n%s", data)
 	}
+}
+
+// copyDatabase clones the database in u (CREATE DATABASE ... TEMPLATE) and drops the
+// clone when the test ends.
+func copyDatabase(t *testing.T, u *url.URL) string {
+	t.Helper()
+	ctx := context.Background()
+	admin := *u
+	admin.Path = "/postgres"
+	conn, err := pgx.Connect(ctx, admin.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	name := fmt.Sprintf("sirserver_test_%d", time.Now().UnixNano())
+	src := strings.TrimPrefix(u.Path, "/")
+	if _, err := conn.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()+" TEMPLATE "+pgx.Identifier{src}.Sanitize()); err != nil {
+		t.Fatalf("copy %s: %v", src, err)
+	}
+	t.Cleanup(func() {
+		c, err := pgx.Connect(context.Background(), admin.String())
+		if err == nil {
+			_, _ = c.Exec(context.Background(), "DROP DATABASE "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)")
+			c.Close(context.Background())
+		}
+	})
+	return name
 }

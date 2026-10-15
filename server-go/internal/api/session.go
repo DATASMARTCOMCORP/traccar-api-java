@@ -23,6 +23,8 @@ func (a *API) routes() {
 	a.handle("GET /api/session/openid/auth", public, openIDDisabled)
 	a.handle("GET /api/session/openid/callback", public, openIDDisabled)
 
+	a.readRoutes()
+
 	// Anything else under /api is Jersey's 404, which still carries the CORS headers.
 	a.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		a.cors(w, r)
@@ -115,9 +117,9 @@ func (a *API) deleteSession(w http.ResponseWriter, r *request) error {
 
 // getSessionAs logs an administrator or manager in as another user.
 func (a *API) getSessionAs(w http.ResponseWriter, r *request) error {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	id, err := pathID(r)
 	if err != nil {
-		return errNotFound // Jersey: unconvertible path parameter (the resource matched)
+		return err
 	}
 	if err := a.checkUser(r, id); err != nil {
 		return err
@@ -164,7 +166,7 @@ func (a *API) postToken(w http.ResponseWriter, r *request) error {
 	}
 	var expiration time.Time
 	if v := f.get("expiration"); v != nil {
-		t, err := time.Parse(time.RFC3339Nano, *v) // DateTimeFormatter.ISO_ZONED_DATE_TIME
+		t, err := parseZonedDate(*v)
 		if err != nil {
 			return errStatus(http.StatusBadRequest, "expiration: %v", err)
 		}
