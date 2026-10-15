@@ -190,3 +190,53 @@ func negative(v *int64) *int64 {
 	}
 	return v
 }
+
+// NewCellTowerSet returns an empty HashSet<CellTower>, as Network.addCellTower fills it:
+// hashCode is Objects.hash(radioType, cellId, locationAreaCode, mobileCountryCode,
+// mobileNetworkCode, signalStrength), with cellId a Long and the others Integers.
+func NewCellTowerSet() *JavaSet[CellTower] {
+	return NewJavaSet(func(c CellTower) int32 {
+		return JavaObjectsHash(stringHash(c.RadioType), longHash(c.CellID), intHash(c.LocationAreaCode),
+			intHash(c.MobileCountryCode), intHash(c.MobileNetworkCode), intHash(c.SignalStrength))
+	}, func(a, b CellTower) bool {
+		return eqPtr(a.RadioType, b.RadioType) && eqPtr(a.CellID, b.CellID) &&
+			eqPtr(a.LocationAreaCode, b.LocationAreaCode) && eqPtr(a.MobileCountryCode, b.MobileCountryCode) &&
+			eqPtr(a.MobileNetworkCode, b.MobileNetworkCode) && eqPtr(a.SignalStrength, b.SignalStrength)
+	})
+}
+
+// NewWifiAccessPointSet returns an empty HashSet<WifiAccessPoint>: hashCode is
+// Objects.hash(macAddress, signalStrength, channel), the last two Integers.
+func NewWifiAccessPointSet() *JavaSet[WifiAccessPoint] {
+	return NewJavaSet(func(w WifiAccessPoint) int32 {
+		return JavaObjectsHash(stringHash(w.MacAddress), intHash(w.SignalStrength), intHash(w.Channel))
+	}, func(a, b WifiAccessPoint) bool {
+		return eqPtr(a.MacAddress, b.MacAddress) && eqPtr(a.SignalStrength, b.SignalStrength) && eqPtr(a.Channel, b.Channel)
+	})
+}
+
+func stringHash(s *string) int32 {
+	if s == nil {
+		return 0
+	}
+	return JavaStringHash(*s)
+}
+
+func longHash(v *int64) int32 {
+	if v == nil {
+		return 0
+	}
+	return JavaLongHash(*v)
+}
+
+// intHash is Integer.hashCode for a value Java holds as an Integer.
+func intHash(v *int64) int32 {
+	if v == nil {
+		return 0
+	}
+	return int32(*v)
+}
+
+func eqPtr[T comparable](a, b *T) bool {
+	return a == nil && b == nil || a != nil && b != nil && *a == *b
+}

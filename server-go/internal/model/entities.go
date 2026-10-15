@@ -134,6 +134,10 @@ type Position struct {
 	Network    *Network // nil is stored as the text "null", as Java does
 	// GeofenceIDs is nil when unset (stored as "null"); an empty list is stored as "[]".
 	GeofenceIDs []int64
+
+	// Outdated marks a position without a fix of its own (Java's @JsonIgnore outdated
+	// flag): processing copies the last known fix into it. It isn't stored or sent.
+	Outdated bool
 }
 
 type Event struct {
@@ -267,3 +271,57 @@ type Action struct {
 	ObjectType *string
 	ObjectID   int64
 }
+
+// Event types (Event.TYPE_*) the server creates.
+const (
+	EventCommandResult      = "commandResult"
+	EventDeviceOnline       = "deviceOnline"
+	EventDeviceUnknown      = "deviceUnknown"
+	EventDeviceOffline      = "deviceOffline"
+	EventDeviceInactive     = "deviceInactive"
+	EventQueuedCommandSent  = "queuedCommandSent"
+	EventDeviceMoving       = "deviceMoving"
+	EventDeviceStopped      = "deviceStopped"
+	EventDeviceOverspeed    = "deviceOverspeed"
+	EventDeviceFuelDrop     = "deviceFuelDrop"
+	EventDeviceFuelIncrease = "deviceFuelIncrease"
+	EventGeofenceEnter      = "geofenceEnter"
+	EventGeofenceExit       = "geofenceExit"
+	EventProximityEnter     = "proximityEnter"
+	EventProximityExit      = "proximityExit"
+	EventUnaccompanied      = "unaccompaniedMotion"
+	EventAlarm              = "alarm"
+	EventIgnitionOn         = "ignitionOn"
+	EventIgnitionOff        = "ignitionOff"
+	EventMaintenance        = "maintenance"
+	EventDriverChanged      = "driverChanged"
+	EventMedia              = "media"
+)
+
+// Position attribute names (Position.KEY_*) that processing reads or writes.
+const (
+	KeyOriginal       = "raw"
+	KeyHdop           = "hdop"
+	KeyEvent          = "event"
+	KeyAlarm          = "alarm"
+	KeyOdometer       = "odometer"
+	KeyHours          = "hours"
+	KeyImage          = "image"
+	KeyVideo          = "video"
+	KeyAudio          = "audio"
+	KeyBatteryLevel   = "batteryLevel"
+	KeyFuel           = "fuel"
+	KeyIgnition       = "ignition"
+	KeyCharge         = "charge"
+	KeyIP             = "ip"
+	KeyDistance       = "distance"
+	KeyTotalDistance  = "totalDistance"
+	KeyApproximate    = "approximate"
+	KeyMotion         = "motion"
+	KeySpeedLimit     = "speedLimit"
+	KeyResult         = "result"
+	KeyDriverUniqueID = "driverUniqueId"
+
+	AlarmAcceleration = "hardAcceleration"
+	AlarmBraking      = "hardBraking"
+)
