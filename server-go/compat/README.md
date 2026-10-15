@@ -17,6 +17,23 @@ go run ./compat -pg-bin ... -b-tz UTC                   # canary: must FAIL (see
 
 It exits 0 when every scenario matches, 1 on differences, and 2 on setup errors.
 
+## Suites
+
+| Suite | Starts from | Covers | Java vs Go |
+|---|---|---|---|
+| `full` (default) | an empty database | the whole API, device traffic, reports | passes once the API is ported (Steps 4–8) |
+| `auth` | users, tokens and the key pair created by Java in a seed | Step 3: password, TOTP, Basic, bearer token and cookie logins; tokens across servers; revocation; login-as; Java's error statuses | **passes** (Step 3 gate) |
+
+A suite's **seed** runs once, through Java, on the template database before both sides are
+cloned. Both sides then start with the same Java-made rows (password hashes, the
+`tc_keystore` key pair), and the seed's variables (`${javaToken}`, `${admin}`) are visible
+everywhere. So a suite can test an endpoint Go has before Go has the endpoints that
+create its data.
+
+A step marked **cross** expands variables with the other side's values. A uses the token B
+issued, and B uses A's: this is how the harness checks that each server accepts the
+other's tokens. `${totp:SECRET}` expands to the current TOTP code for a base32 secret.
+
 ## What a run does
 
 1. Starts a throwaway Postgres cluster in the work directory on a free port. It listens
@@ -66,7 +83,7 @@ catches real differences.
 | JSON strings in Java date format, `timestamp` columns, CSV time cells | equal within 5s | Each server stamps its own "now" (`serverTime`, `lastUpdate`, `actiontime`). A zone or format bug still shows as hours, or as a format mismatch. |
 | `tc_users.hashedpassword`, `tc_users.salt` | both 48 hex chars | Random salt per user. Step 3 cross-verifies passwords. |
 | `tc_keystore` keys | both non-empty | Each JVM generates its own key pair on first token. |
-| Bearer token bodies | both non-empty | Random id and ECDSA signature. |
+| Bearer token bodies | same user id and expiration in the signed payload (expiration within 5s when the server picks it) | The id and ECDSA signature are random. |
 | Token ids (`tc_revoked_tokens.id`, `tc_actions.objectid`, `/api/audit`) | aliased | The harness decodes each issued token and maps A's random id to B's, so it still checks that the *right* token was revoked. |
 | `/api/server` `storageSpace` (admin only) | same shape | The host's live free and total disk space. |
 | `/api/notifications/notificators` | array order ignored | Java returns a `HashSet`; its order changes between JVM runs. |

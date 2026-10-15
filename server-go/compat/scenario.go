@@ -3,7 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base32"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -47,6 +51,9 @@ type Step struct {
 	Binary    bool              // non-JSON 2xx body (xlsx...): compare status and headers only
 	CSV       bool              // CSV body: compare by column name (Java's column order varies)
 	Token     bool              // 2xx body is a bearer token: alias its random id on both sides
+	// Cross expands ${vars} with the other side's variables: A sends what B produced and
+	// the reverse (e.g. each server must accept the other's tokens).
+	Cross bool
 
 	// Device traffic.
 	Device *Traffic
@@ -67,6 +74,8 @@ type side struct {
 	vars    map[string]string
 	clients map[string]*http.Client
 	aliases map[string]string // random value → stable alias, see jsonOptions
+	other   *side             // the opposite side, for Cross steps
+	scope   map[string]string // variables used by expand for the current step
 }
 
 func newSide(t *target, db *pgx.Conn) *side {
@@ -86,13 +95,22 @@ func (r *side) client(actor string) *http.Client {
 	return c
 }
 
-var varRef = regexp.MustCompile(`\$\{([A-Za-z0-9_]+)\}`)
+var varRef = regexp.MustCompile(`\$\{([A-Za-z0-9_]+|totp:[A-Z2-7]+)\}`)
 
+// expand replaces ${name} with a variable, and ${totp:SECRET} with the current TOTP code
+// for a base32 secret.
 func (r *side) expand(s string) (string, error) {
+	vars := r.scope
+	if vars == nil {
+		vars = r.vars
+	}
 	var missing []string
 	out := varRef.ReplaceAllStringFunc(s, func(m string) string {
 		name := m[2 : len(m)-1]
-		v, ok := r.vars[name]
+		if secret, ok := strings.CutPrefix(name, "totp:"); ok {
+			return totpCode(secret, time.Now())
+		}
+		v, ok := vars[name]
 		if !ok {
 			missing = append(missing, name)
 		}
@@ -112,6 +130,11 @@ type response struct {
 }
 
 func (r *side) do(ctx context.Context, s Step) (*response, error) {
+	r.scope = r.vars
+	if s.Cross {
+		r.scope = r.other.vars
+	}
+	defer func() { r.scope = nil }()
 	if s.Device != nil {
 		return r.traffic(ctx, s.Device)
 	}
@@ -171,22 +194,50 @@ func (r *side) do(ctx context.Context, s Step) (*response, error) {
 	return out, nil
 }
 
-// tokenID extracts the random id from a bearer token: base64url of
+// tokenPayload is the signed part of a bearer token.
+type tokenPayload struct {
+	ID         json.Number `json:"i"`
+	UserID     json.Number `json:"u"`
+	Expiration string      `json:"e"`
+}
+
+// decodeToken reads a bearer token's payload: base64url of
 // [signature length][DER signature][JSON {"i":id,"u":userId,"e":expiration}].
-func tokenID(token string) (string, error) {
+func decodeToken(token string) (tokenPayload, error) {
+	var p tokenPayload
 	raw, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil || len(raw) < 2 || int(raw[0])+1 >= len(raw) {
-		return "", fmt.Errorf("malformed token %q", token)
-	}
-	var payload struct {
-		ID json.Number `json:"i"`
+		return p, fmt.Errorf("malformed token %q", token)
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw[1+int(raw[0]):]))
 	dec.UseNumber()
-	if err := dec.Decode(&payload); err != nil || payload.ID == "" {
-		return "", fmt.Errorf("token payload: %v", err)
+	if err := dec.Decode(&p); err != nil || p.ID == "" {
+		return p, fmt.Errorf("token payload: %v", err)
 	}
-	return string(payload.ID), nil
+	return p, nil
+}
+
+func tokenID(token string) (string, error) {
+	p, err := decodeToken(token)
+	return string(p.ID), err
+}
+
+// diffTokens compares what both servers signed: the same user and expiration (within
+// clockTolerance when the server chose it). Ids and signatures are random.
+func diffTokens(a, b []byte) []string {
+	pa, errA := decodeToken(string(a))
+	pb, errB := decodeToken(string(b))
+	if errA != nil || errB != nil {
+		return []string{fmt.Sprintf("token: A=%v B=%v", errA, errB)}
+	}
+	var out []string
+	if pa.UserID != pb.UserID {
+		out = append(out, fmt.Sprintf("token user: A=%s B=%s", pa.UserID, pb.UserID))
+	}
+	if pa.Expiration != pb.Expiration && !datesClose(pa.Expiration, pb.Expiration) {
+		out = append(out, fmt.Sprintf("token expiration: A=%s B=%s", pa.Expiration, pb.Expiration))
+	}
+	return out
 }
 
 func (r *side) save(s Step, resp *response) error {
@@ -345,6 +396,8 @@ func compareResponses(s Step, a, b *response, aliasA, aliasB map[string]string) 
 		if !bytes.Equal(a.body, b.body) {
 			out = append(out, fmt.Sprintf("device reply: A=%s B=%s", hex.EncodeToString(a.body), hex.EncodeToString(b.body)))
 		}
+	case s.Token:
+		out = append(out, diffTokens(a.body, b.body)...)
 	case slices.Contains(s.Opaque, "$body"):
 		if (len(a.body) == 0) != (len(b.body) == 0) {
 			out = append(out, fmt.Sprintf("body shape: A=%d bytes B=%d bytes", len(a.body), len(b.body)))
@@ -395,4 +448,19 @@ func clip(b []byte) string {
 		return string(b[:200]) + "…"
 	}
 	return string(b)
+}
+
+// totpCode is the current RFC 6238 code (SHA-1, 6 digits, 30 s) for a base32 secret.
+func totpCode(secret string, now time.Time) string {
+	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
+	if err != nil {
+		return "000000"
+	}
+	var msg [8]byte
+	binary.BigEndian.PutUint64(msg[:], uint64(now.Unix()/30))
+	mac := hmac.New(sha1.New, key)
+	mac.Write(msg[:])
+	sum := mac.Sum(nil)
+	off := sum[len(sum)-1] & 0x0f
+	return fmt.Sprintf("%06d", (binary.BigEndian.Uint32(sum[off:off+4])&0x7fffffff)%1_000_000)
 }

@@ -14,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -49,6 +50,7 @@ func run() error {
 		sideA   = flag.String("a", "java", "side A: java or go")
 		sideB   = flag.String("b", "java", "side B: java or go")
 		only    = flag.String("run", "", "only run scenarios whose name matches this regexp (they build on each other)")
+		suiteF  = flag.String("suite", "full", "scenario suite: full (whole API, empty database) or auth (Step 3)")
 		keep    = flag.Bool("keep", false, "keep the work directory, servers' logs and databases; print DSNs")
 		work    = flag.String("work", "", "work directory (default: a new temp directory)")
 		tz      = flag.String("tz", "America/Sao_Paulo", "time zone for both servers and Postgres; non-UTC on purpose")
@@ -87,6 +89,10 @@ func run() error {
 	filter, err := regexp.Compile(*only)
 	if err != nil {
 		return err
+	}
+	suite, ok := suites()[*suiteF]
+	if !ok {
+		return fmt.Errorf("unknown suite %q", *suiteF)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -127,6 +133,20 @@ func run() error {
 	if err := tmpl.start(ctx, withKind(base, "java")); err != nil {
 		return err
 	}
+	// The suite's seed runs on the template through Java, so both sides start with the
+	// same Java-created rows (users, password hashes, the token key pair).
+	seed := newSide(tmpl, nil)
+	for i, s := range suite.seed {
+		resp, err := seed.do(ctx, s)
+		if err != nil || resp.status >= 300 {
+			tmpl.stop()
+			status := 0
+			if resp != nil {
+				status = resp.status
+			}
+			return fmt.Errorf("seed step %d %s: status %d, %v", i+1, describe(s), status, err)
+		}
+	}
 	tmpl.stop()
 
 	var targets []*target
@@ -159,9 +179,11 @@ func run() error {
 		}
 		defer conn.Close(context.Background())
 		runs[i] = newSide(t, conn)
+		maps.Copy(runs[i].vars, seed.vars)
 	}
+	runs[0].other, runs[1].other = runs[1], runs[0]
 
-	failed := runScenarios(ctx, library(), filter, runs[0], runs[1])
+	failed := runScenarios(ctx, suite.scenarios, filter, runs[0], runs[1])
 
 	if *keep {
 		fmt.Printf("\nkept work directory %s\n  A (%s): %s\n  B (%s): %s\n  logs: %s, %s\n",

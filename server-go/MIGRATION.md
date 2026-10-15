@@ -1,7 +1,7 @@
 # SIR server: Java → Go migration plan
 
-Status: **approved**. Steps 1 (harness) and 2 (foundation) are done; Step 0 is waiting on
-production access (queries in `inventory/README.md`). Decisions and findings are in section 8.
+Status: **approved**. Steps 0 (inventory, `inventory/results/`), 1 (harness), 2 (foundation)
+and 3 (auth and sessions) are done. Decisions and findings are in section 8.
 
 ## 1. Goals and hard constraints
 
@@ -300,3 +300,23 @@ and need a decision before the steps that depend on them:
   protocol carrying production traffic, so it gets the deepest testing. No computed attributes, scheduled reports or saved commands. Auth: passwords,
   sessions, Basic auth and tokens only (no TOTP/LDAP/OpenID). The endpoint list is still open:
   production has no request log.
+
+### Step 3 (auth and sessions), 2026-10-15
+
+Gate passed: the harness `auth` suite (80 steps) matches **Java vs Go** in statuses, headers,
+JSON and database rows. That includes tokens across servers in both directions (A uses B's
+token and the reverse) and revocation. Separately, Java's own `CryptoManager` and
+`TokenManager` loaded a Go-generated key pair and verified a Go-issued token (a manual check,
+recorded here). Go reads Java's password hashes and token vectors in unit tests.
+
+Scope, per Step 0: password (PBKDF2), TOTP, Basic, bearer tokens (`tc_keystore`,
+`tc_revoked_tokens`), cookie sessions (`JSESSIONID`, in memory, as Jetty), the service account
+token, and login-as. Not ported, because production doesn't use them: OpenID (it answers
+400, "not enabled", like Java without it) and LDAP.
+
+Not done yet, noted for later steps:
+- `web.persistSession` (Jetty JDBC sessions)
+- per-request statistics (`tc_statistics.requests`)
+- OPTIONS preflight responses
+- a 405 for a wrong method on a known path: everything under `/api/` that doesn't match a
+  route currently gets 404
