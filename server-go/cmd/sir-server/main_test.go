@@ -92,6 +92,8 @@ func TestRunAgainstJavaDatabase(t *testing.T) {
 		"database.password": password,
 		"logger.file":       logFile,
 		"database.timezone": "America/Sao_Paulo",
+		"web.address":       "127.0.0.1",
+		"web.port":          "0",
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)

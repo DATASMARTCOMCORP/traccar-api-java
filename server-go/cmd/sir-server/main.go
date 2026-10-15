@@ -6,8 +6,8 @@
 // As with Java, the config file is the last argument, defaulting to ./debug.xml.
 //
 // Startup: load the config, set up logging, open the database (refusing an unknown
-// schema version), then run until SIGINT or SIGTERM and shut down gracefully. Listeners
-// (API, device protocols) are added in later migration steps.
+// schema version), serve the API, then run until SIGINT or SIGTERM and shut down gracefully.
+// Device protocol listeners are added in later migration steps.
 package main
 
 import (
@@ -15,10 +15,16 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
+	"time"
 
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/api"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/auth"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/config"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/store"
 )
@@ -66,12 +72,44 @@ func run(ctx context.Context, args []string, stderr io.Writer) error {
 	// yet: while Java still serves devices against the same database, that would mark
 	// Java's connected devices offline. It moves here when Go owns the device ports (Step 6).
 
-	<-ctx.Done()
-	// Listeners will be stopped here, with a deadline, as they are ported. The deferred
-	// st.Close waits for queries in flight.
+	apiOpts, err := api.OptionsFromConfig(cfg)
+	if err != nil {
+		return err
+	}
+	port, err := cfg.Int(config.WebPort, config.DefaultWebPort)
+	if err != nil {
+		return err
+	}
+	addr := net.JoinHostPort(cfg.String(config.WebAddress, ""), strconv.Itoa(port))
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("web: %w", err)
+	}
+	web := &http.Server{
+		Handler:           api.New(apiOpts, st, auth.NewTokens(st)),
+		ReadHeaderTimeout: 30 * time.Second,
+		ErrorLog:          slog.NewLogLogger(slog.Default().Handler(), slog.LevelWarn),
+	}
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- web.Serve(ln) }()
+	slog.Info("web server started", "address", ln.Addr().String())
+
+	select {
+	case <-ctx.Done():
+	case err := <-serveErr:
+		return fmt.Errorf("web: %w", err)
+	}
 	slog.Info("stopping server")
-	return nil
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := web.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("web shutdown: %w", err)
+	}
+	return nil // the deferred st.Close waits for queries in flight
 }
+
+// shutdownTimeout bounds how long requests in flight get to finish after a stop signal.
+const shutdownTimeout = 30 * time.Second
 
 func configPath(args []string) string {
 	if len(args) == 0 {
