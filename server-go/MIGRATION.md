@@ -175,11 +175,15 @@ Each step ends with a **gate**: its exit criteria must pass before the next step
 
 **Gate:** replayed osmand traffic produces identical `tc_positions` / `tc_devices` / `tc_events` rows.
 
-### Step 7: Protocols (repeat per protocol from the Step 0 list)
+### Step 7: Protocols (all of them; repeat per protocol)
 - Port the decoder and encoder (commands), and its Java test vectors as Go table tests.
 - Replay captured production traffic through Java and Go, then diff the decoded positions.
-- Expected order: **suntech** (including the SIR two's-complement fix), intellitrac,
-  atrack (custom mode), then the rest by device count.
+- Order: **osmand** (Step 6, special focus: every Java test vector, plus replay of captured
+  production traffic covering both client styles in `inventory/clients.md`), then **suntech**
+  (including the SIR fix), intellitrac and atrack (custom mode). After that, **every other
+  protocol**, batched by shared frame decoders and helpers. Each protocol is ported with its Java
+  test vectors as Go table tests and checked in the harness. Without production traffic, the
+  Java test vectors are the oracle.
 
 **Gate per protocol:** all Java test vectors pass, and the traffic replay diff is empty.
 
@@ -226,14 +230,17 @@ Each step ends with a **gate**: its exit criteria must pass before the next step
 
 ## 7. Open decisions
 
-- Port only protocols in use (recommended) or all 200+?
+- ~~Port only protocols in use (recommended) or all 200+?~~ All of them, with OsmAnd first (section 8).
 - Postgres only (recommended; production uses Postgres), or keep H2/MySQL/MSSQL?
 - Keep the API on Java until all ports have moved (simpler), or build the Redis broadcast early?
 
 ## 8. Decisions and findings during Steps 1 and 2
 
-Decisions (from the review of section 7): **Postgres only**. **Port only the protocols production
-uses**, starting with osmand, suntech (with the SIR two's-complement fix), intellitrac and atrack.
+Decisions (from the review of section 7): **Postgres only**. **Port every protocol** (all 267
+classes, 266 with default ports; revised on 2026-10-15, superseding "only the protocols in use").
+**OsmAnd gets special focus:** it is the only protocol production uses today, so it goes first,
+with the deepest testing and traffic replay. Then suntech (with the SIR two's-complement fix),
+intellitrac and atrack, then the rest.
 **Keep the API on Java until every device port has moved**; no Redis broadcast for now.
 
 **The Go Suntech decoder keeps the SIR fix** (decided after finding 1 below): binary coordinates
@@ -289,7 +296,7 @@ and need a decision before the steps that depend on them:
 - **Time zone:** America/Sao_Paulo on the host, the JVM and the DB. JDK 21 confirmed.
 - **Production config differs from `sir-dev.xml`:** `server.buffering.threshold=0`, and
   `time.zone=America/Sao_Paulo`.
-- **Scope consequences:** the protocol port is OsmAnd only, unless the 90-day heavy query shows
-  otherwise. No computed attributes, scheduled reports or saved commands. Auth: passwords,
+- **Scope consequences:** all protocols are ported anyway (decision above). OsmAnd is the only
+  protocol carrying production traffic, so it gets the deepest testing. No computed attributes, scheduled reports or saved commands. Auth: passwords,
   sessions, Basic auth and tokens only (no TOTP/LDAP/OpenID). The endpoint list is still open:
   production has no request log.

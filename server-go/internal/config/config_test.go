@@ -1,8 +1,11 @@
 package config
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -211,6 +214,28 @@ func TestCheckDriver(t *testing.T) {
 	}
 	if err := mustParse(t, "<properties/>", noEnv).CheckDriver(); err != nil {
 		t.Errorf("absent driver: %v", err)
+	}
+}
+
+// TestDefaultPortsMatchJava re-reads PortConfigSuffix.java so the table can't drift.
+func TestDefaultPortsMatchJava(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "..", "src", "main", "java", "org", "traccar", "config", "PortConfigSuffix.java"))
+	if err != nil {
+		t.Skip("Java sources not found:", err)
+	}
+	re := regexp.MustCompile(`put\(([A-Za-z0-9]+)Protocol\.class, (\d+)\)`)
+	java := map[string]int{}
+	for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+		port, _ := strconv.Atoi(m[2])
+		java[strings.ToLower(m[1])] = port
+	}
+	if len(java) < 250 || !maps.Equal(java, defaultPorts) {
+		t.Errorf("defaultPorts (%d entries) differs from PortConfigSuffix.java (%d entries)", len(defaultPorts), len(java))
+	}
+	for name, port := range map[string]int{"osmand": 5055, "suntech": 5011, "gps103": 5001, "teltonika": 5027} {
+		if defaultPorts[name] != port {
+			t.Errorf("%s: %d, want %d", name, defaultPorts[name], port)
+		}
 	}
 }
 

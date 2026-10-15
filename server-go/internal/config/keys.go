@@ -39,16 +39,8 @@ const (
 	DefaultLoggerLevel         = "info"
 )
 
-// defaultPorts are the protocol ports from org.traccar.config.PortConfigSuffix for the
-// protocols the Go server implements.
-var defaultPorts = map[string]int{
-	"osmand":      5055,
-	"suntech":     5011,
-	"intellitrac": 5037,
-	"atrack":      5044,
-}
-
-// Port returns <protocol>.port with Java's default. 0 means the protocol is off.
+// Port returns <protocol>.port with Java's default (see defaultPorts). 0 means the protocol
+// is off.
 func (c *Config) Port(protocol string) (int, error) {
 	return c.Int(protocol+".port", defaultPorts[protocol])
 }
