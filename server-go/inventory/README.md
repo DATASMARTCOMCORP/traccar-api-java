@@ -192,6 +192,26 @@ FROM pg_stat_user_tables ORDER BY pg_total_relation_size(relid) DESC;
 SELECT split_part(area, ' ', 1) AS shape, count(*), max(length(area)) AS max_len
 FROM tc_geofences GROUP BY 1;
 
+-- Geofences Java can't parse (MIGRATION.md, Step 6 finding 5) and the active devices
+-- that lose geofencing because of them. An approximation of Java's parser: other shape
+-- types, and circles whose content doesn't split into exactly two comma-separated parts.
+-- A device is affected through a direct link or a group link (up to three group levels).
+WITH bad AS (
+  SELECT id FROM tc_geofences
+  WHERE area !~ '^(CIRCLE|POLYGON|LINESTRING)'
+     OR (area ~ '^CIRCLE' AND array_length(string_to_array(substring(area FROM '\((.*)\)'), ','), 1) <> 2)
+), groups AS (
+  SELECT d.id AS device, g1.id AS g1, g2.id AS g2, g2.groupid AS g3
+  FROM tc_devices d LEFT JOIN tc_groups g1 ON g1.id = d.groupid LEFT JOIN tc_groups g2 ON g2.id = g1.groupid
+), affected AS (
+  SELECT DISTINCT dg.deviceid AS device FROM tc_device_geofence dg JOIN bad ON bad.id = dg.geofenceid
+  UNION SELECT g.device FROM groups g JOIN tc_group_geofence gg ON gg.groupid IN (g.g1, g.g2, g.g3)
+        JOIN bad ON bad.id = gg.geofenceid
+)
+SELECT (SELECT count(*) FROM bad) AS bad_geofences, count(*) AS affected_devices,
+       count(*) FILTER (WHERE d.lastupdate > localtimestamp - interval '30 days') AS active_last_30_days
+FROM affected a JOIN tc_devices d ON d.id = a.device;
+
 -- Calendars, drivers, maintenance, orders: used at all?
 SELECT (SELECT count(*) FROM tc_calendars) AS calendars, (SELECT count(*) FROM tc_drivers) AS drivers,
        (SELECT count(*) FROM tc_maintenances) AS maintenances, (SELECT count(*) FROM tc_orders) AS orders,

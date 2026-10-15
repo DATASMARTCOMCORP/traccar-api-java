@@ -33,8 +33,9 @@ jobs:
           path: server-go/sir-server
 
   # Java-vs-Java harness self-check (Step 1 gate), the DB round trip on rows written by
-  # Java (Step 2 gate), the auth, read, crud and write suites Java vs Go (Steps 3-5), and the
-  # time-zone canary, which must fail.
+  # Java (Step 2 gate), the auth, read, crud and write suites Java vs Go (Steps 3-5), the
+  # ingest, buffered and status suites Java vs Go (Step 6), and the time-zone canary,
+  # which must fail.
   compat:
     runs-on: ubuntu-latest
     env:
@@ -79,6 +80,11 @@ jobs:
         run: |
           go run ./compat -pg-bin "$RUNNER_TEMP/pg/pgsql/bin" -suite crud -b go -go-bin "$RUNNER_TEMP/sir-server"
           go run ./compat -pg-bin "$RUNNER_TEMP/pg/pgsql/bin" -suite write -b go -go-bin "$RUNNER_TEMP/sir-server"
+      - name: Ingest, buffered and status suites, Java vs Go (Step 6 gate)
+        run: |
+          go run ./compat -pg-bin "$RUNNER_TEMP/pg/pgsql/bin" -suite ingest -b go -go-bin "$RUNNER_TEMP/sir-server"
+          go run ./compat -pg-bin "$RUNNER_TEMP/pg/pgsql/bin" -suite buffered -b go -go-bin "$RUNNER_TEMP/sir-server"
+          go run ./compat -pg-bin "$RUNNER_TEMP/pg/pgsql/bin" -suite status -b go -go-bin "$RUNNER_TEMP/sir-server"
       - name: Canary (must fail)
         run: |
           if go run ./compat -pg-bin "$RUNNER_TEMP/pg/pgsql/bin" -b-tz UTC > "$RUNNER_TEMP/canary.out"; then

@@ -1,7 +1,7 @@
 # SIR server: Java → Go migration plan
 
 Status: **approved**. Steps 0 (inventory, `inventory/results/`), 1 (harness), 2 (foundation),
-3 (auth and sessions), 4 (read-only API) and 5 (write API) are done. Decisions and findings are in section 8.
+3 (auth and sessions), 4 (read-only API), 5 (write API) and 6 (ingestion core, OsmAnd) are done. Decisions and findings are in section 8.
 
 ## 1. Goals and hard constraints
 
@@ -382,3 +382,107 @@ Not done in Step 5, because it needs later steps:
 
 The SMS and push command paths answer 501 in Go until then. The server reboot endpoint is not
 ported.
+
+### Step 6 (ingestion core, OsmAnd), 2026-10-15
+
+Gate passed: replayed OsmAnd traffic gives identical rows in every table, `tc_positions`,
+`tc_devices` and `tc_events` included, Java vs Go. Java vs Java passes the same suites.
+- **`ingest`** (10 scenarios, production's config: no buffering). It covers:
+  - every input form of the decoder: query string, form body, Transistorsoft JSON, each
+    timestamp format, cells and Wi-Fi, Java number syntax, escapes;
+  - its error paths: 400 and 404 replies, and connections closed without a reply;
+  - every vector of `OsmAndProtocolDecoderTest`, and the requests of the in-house clients
+    (`inventory/clients.md`);
+  - queued commands returned in replies;
+  - a drive that triggers every event detector;
+  - the position filter, unparseable geofences, proximity, engine hours, copied
+    attributes, `time.override`, positions without a fix, and calendars on devices and
+    geofences.
+- **`buffered`**: `server.buffering.threshold` (5 s) on one connection.
+- **`status`**: `event.status.enable`, `status.timeout` and `database.registerUnknown`.
+
+Go now receives OsmAnd on its port and processes positions like Java:
+- device sessions, unknown devices (with registration and throttling), disabled devices;
+- online and unknown status with the status timeout;
+- queued commands, buffering, and delayed acknowledgement;
+- the position handlers in Java's order: outdated, time, hemisphere, distance, filter
+  (calendars included), geofences, motion, linked driver, copied attributes, engine hours,
+  database, post-processing;
+- every event detector, with the events stored in detection order.
+
+Device rows, groups, the server row, geofences and calendars are read from the database for
+each position. Java reads them from its cache, which its own API keeps current, so the
+result is the same while the API stays in another process. Position history (the last
+position, and the window the motion logic uses) follows the lifetimes of Java's cache
+exactly: loaded with a device's first reference (a connection or a position in flight),
+dropped with the last.
+
+Exactness needed ports of Java behavior below the Traccar code. Each is checked against
+output from the production JVM (Corretto 21.0.12):
+
+| What | Go package | Checked against |
+|---|---|---|
+| `Math.sin` and `Math.cos`: HotSpot intrinsics, translated from the x86_64 stub sources and run on an emulated machine | `internal/javamath` | 3M JVM results, 2M `DistanceCalculator` results |
+| `Math.atan2` (fdlibm) | `internal/javamath` | same |
+| `Double.parseDouble`, `Integer.parseInt`, `Long.parseLong` | `internal/model` | 30k inputs |
+| Geofence geometry (`GeofenceCircle`, `Polygon`, `Polyline`) and `containsPosition` | `internal/geo` | 300k checks |
+| `DateUtil.parseDate` (`ISO_ZONED_DATE_TIME`) and `yyyy-MM-dd HH:mm:ss` | `internal/javatime` | 200k inputs |
+| Netty's `QueryStringDecoder`, with `java.lang.String`'s UTF-8 replacement | `internal/protocol/osmand` | 50k inputs |
+| `Calendar.checkMoment`: ical4j 4.2.5 parsing and recurrence | `internal/ical` | 1.7M checks of random calendars |
+
+Findings:
+1. **Buffering is racy in Java across connections.** Released fixes run on the thread of the
+   connection that delivered them. If one device's fixes arrive over several connections,
+   their processing order is a race, and two Java runs differ. Production sets the threshold
+   to 0, so this doesn't happen there. Go releases in deadline order. The `buffered` suite
+   checks one connection, where Java is deterministic.
+2. **ical4j uses its own zone rules.** It builds them from VTIMEZONE files it bundles, and the
+   result for America/Sao_Paulo still switches to -02:00 every January (back on the third
+   Sunday of February). Calendar arithmetic in production follows those rules, so hourly
+   rules and times near those fake transitions are off by an hour in January. Go embeds
+   ical4j's effective rules for every zone (`internal/ical/ical4j-zones.txt.gz`).
+3. **Calendar quirks Go reproduces:**
+   - an occurrence of a recurring event includes both ends;
+   - a single event excludes its start, so a moment exactly at DTSTART is outside;
+   - all-day recurring events also cover the next day (by UTC date);
+   - an error in any VEVENT fails the whole check.
+4. **Dead keys in `sir-prd.xml`.** Java ignores both, and so does Go:
+   - `server.instantAcknowledgement`: renamed `server.delayAcknowledgement`, with the
+     meaning inverted (upstream c2b1ed594, 2025-07-06).
+   - `time.zone`: 6.14.5 has no such key. Decoders read `decoder.timezone`, default UTC.
+     OsmAnd doesn't use either; this matters for Step 7.
+5. **Unparseable geofences switch off geofencing for their devices.** A geofence Java can't
+   parse fails the whole geofence handler for every device linked to it. Production has such
+   geofences (MULTILINESTRING, decimal commas). Those devices never get `geofenceIds` or
+   geofence events, so their notifications never fire. Go reproduces this.
+   `inventory/README.md` has a query that lists the affected devices.
+6. A disabled or expired device makes the decoder throw. Java closes the connection without
+   a reply, and so does Go.
+7. With `event.status.enable`, Java compares the new status with the cached device's. When
+   the device isn't cached, it compares with the blank-padded `CHAR(8)` column, which never
+   matches, so an event fires. Go keeps the same state. Production doesn't enable status
+   events.
+
+Coexistence (for Step 10):
+- **Status reset at startup.** Go resets every device to offline at startup, as Java does.
+  With both running, restarting either one marks the other's devices offline until their
+  next message.
+- **Statistics.** Go writes its own daily `tc_statistics` row (messages received and stored,
+  devices per protocol), so there will be two rows a day. Posting to `server.statistics` is
+  not ported.
+
+Not in Step 6:
+- **Notifications and event forwarding (Step 9).** Go stores events but doesn't notify or
+  forward them. Production uses both: web and mail on geofence events, SMS on motion, and
+  the `event.forward` webhook. **The OsmAnd port must not move to Go before Step 9.**
+- Computed attributes, geocoding of positions, geolocation, map matching, speed limits and
+  position forwarding. Go logs a warning at startup when they are configured. Production
+  uses none of them.
+- The other protocols and live commands on TCP connections (Step 7), and WebSocket updates
+  (Step 8).
+
+**Licensing.** `internal/javamath/libm_gen.go` is translated from HotSpot's x86_64 libm stubs:
+Intel's code, under GPLv2 only. It carries their notice. Bit-exact `Math.sin` and `Math.cos`
+need this code. Before the Go server is distributed outside the company, decide whether that
+license fits.
+
