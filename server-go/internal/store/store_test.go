@@ -114,11 +114,17 @@ func TestCheckChangesets(t *testing.T) {
 			postgres = append(postgres, k.changeset)
 		}
 	}
-	if len(postgres) != 34 {
-		t.Fatalf("a Postgres database from the current changelog has 34 rows; list has %d", len(postgres))
+	if len(postgres) != 32 {
+		t.Fatalf("want 32 required changesets (34 from the current changelog minus the two optional ones); got %d", len(postgres))
 	}
 	if err := checkChangesets(postgres); err != nil {
-		t.Errorf("current schema: %v", err)
+		t.Errorf("minimal schema: %v", err)
+	}
+	current := append(slices.Clone(postgres),
+		changeset{"changelog-6.13.0-fk-linkeddeviceid", "author", "changelog-6.13.0"},
+		changeset{"changelog-6.15.0", "author", "changelog-6.15.0"})
+	if err := checkChangesets(current); err != nil {
+		t.Errorf("schema from the current changelog: %v", err)
 	}
 	withDSC := append(slices.Clone(postgres), changeset{"changelog-6.13-dsc", "dsc-trackhub", "changelog-6.13-dsc"})
 	if err := checkChangesets(withDSC); err != nil {
@@ -128,14 +134,37 @@ func TestCheckChangesets(t *testing.T) {
 	if err := checkChangesets(newer); !errors.Is(err, ErrSchema) || !strings.Contains(err.Error(), "newer") {
 		t.Errorf("newer schema: %v", err)
 	}
-	older := postgres[:len(postgres)-1] // without 6.15.0
-	if err := checkChangesets(older); !errors.Is(err, ErrSchema) || !strings.Contains(err.Error(), "changelog-6.15.0") {
+	older := slices.DeleteFunc(slices.Clone(postgres), func(c changeset) bool { return c.id == "changelog-6.13.0" })
+	if err := checkChangesets(older); !errors.Is(err, ErrSchema) || !strings.Contains(err.Error(), "changelog-6.13.0") {
 		t.Errorf("older schema: %v", err)
 	}
 	renamed := slices.Clone(postgres)
 	renamed[0].author = "someone"
 	if err := checkChangesets(renamed); !errors.Is(err, ErrSchema) {
 		t.Error("author is part of a changeset's identity")
+	}
+}
+
+// TestProductionChangelogAccepted: the Go server must start on production's database.
+// The file holds traccar_prd's databasechangelog (ids only), read on 2026-10-15.
+func TestProductionChangelogAccepted(t *testing.T) {
+	data, err := os.ReadFile("testdata/production-changelog.tsv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var applied []changeset
+	for line := range strings.Lines(string(data)) {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		f := strings.Split(strings.TrimRight(line, "\n"), "\t")
+		applied = append(applied, changeset{f[0], f[1], f[2]})
+	}
+	if len(applied) != 58 {
+		t.Fatalf("read %d rows, want 58", len(applied))
+	}
+	if err := checkChangesets(applied); err != nil {
+		t.Errorf("production schema rejected: %v", err)
 	}
 }
 
@@ -180,8 +209,9 @@ func TestKnownChangesetsMatchChangelogs(t *testing.T) {
 			t.Fatalf("%s: %v", f, err)
 		}
 		for _, cs := range cl.ChangeSets {
+			optional := f == "changelog-6.13-dsc.xml" || cs.ID == "changelog-6.13.0-fk-linkeddeviceid" || cs.ID == "changelog-6.15.0"
 			fromXML = append(fromXML, knownChangeset{
-				changeset{cs.ID, cs.Author, cl.LogicalFilePath}, runsOnPostgres(cs.DBMS), f == "changelog-6.13-dsc.xml"})
+				changeset{cs.ID, cs.Author, cl.LogicalFilePath}, runsOnPostgres(cs.DBMS), optional})
 		}
 	}
 	if !slices.Equal(fromXML, knownChangesets) {

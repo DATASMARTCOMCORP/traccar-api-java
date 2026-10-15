@@ -58,12 +58,47 @@ var knownChangesets = []knownChangeset{
 	{changeset{"changelog-6.11.0-other", "author", "changelog-6.11.0"}, true, false},
 	{changeset{"changelog-6.11.0", "author", "changelog-6.11.0"}, true, false},
 	{changeset{"changelog-6.13.0", "author", "changelog-6.13.0"}, true, false},
-	{changeset{"changelog-6.13.0-fk-linkeddeviceid", "author", "changelog-6.13.0"}, true, false},
+	// Optional: production's history (2026-10-15) doesn't have it; see legacyChangesets.
+	{changeset{"changelog-6.13.0-fk-linkeddeviceid", "author", "changelog-6.13.0"}, true, true},
 	{changeset{"changelog-6.13.0-fk-linkeddeviceid-mssql", "author", "changelog-6.13.0"}, false, false},
-	{changeset{"changelog-6.15.0", "author", "changelog-6.15.0"}, true, false},
+	// Optional for the same reason; without it tc_devices.positionid and other ids stay
+	// integer, which the Go code reads into int64 either way.
+	{changeset{"changelog-6.15.0", "author", "changelog-6.15.0"}, true, true},
 	// SIR: tc_geofences.area as TEXT. Its include was dropped from changelog-master.xml by
 	// the upstream merge 907139a13, so databases may or may not have it (MIGRATION.md §8).
 	{changeset{"changelog-6.13-dsc", "dsc-trackhub", "changelog-6.13-dsc"}, true, true},
+}
+
+// legacyChangesets are rows that older Traccar changelogs (3.x and the old 4.0 upgrade
+// path) recorded, all MARK_RAN on Postgres. They are in production's history
+// (testdata/production-changelog.tsv) but no longer in schema/, so they are accepted,
+// never required.
+var legacyChangesets = []changeset{
+	{"changelog-3.3", "author", "changelog-3.3"},
+	{"changelog-3.5", "author", "changelog-3.5"},
+	{"changelog-3.6", "author", "changelog-3.6"},
+	{"changelog-3.7", "author", "changelog-3.7"},
+	{"changelog-3.7-notmssql", "author", "changelog-3.7"},
+	{"changelog-3.8", "author", "changelog-3.8"},
+	{"changelog-3.9", "author", "changelog-3.9"},
+	{"changelog-3.10", "author", "changelog-3.10"},
+	{"changelog-3.10-notmssql", "author", "changelog-3.10"},
+	{"changelog-3.10-mssql", "author", "changelog-3.10"},
+	{"changelog-3.7-mssql", "author", "changelog-3.10"},
+	{"changelog-3.11", "author", "changelog-3.11"},
+	{"changelog-3.12", "author", "changelog-3.12"},
+	{"changelog-3.12-notmssql", "author", "changelog-3.12"},
+	{"changelog-3.12-pgsql", "author", "changelog-3.12"},
+	{"changelog-3.14", "author", "changelog-3.14"},
+	{"changelog-3.15", "author", "changelog-3.15"},
+	{"changelog-3.16", "author", "changelog-3.16"},
+	{"changelog-3.3-admin", "author", "changelog-3.17"},
+	{"changelog-3.17", "author", "changelog-3.17"},
+	{"changelog-4.0-pre", "author", "changelog-4.0"},
+	{"changelog-4.0-common", "author", "changelog-4.0"},
+	{"changelog-4.0-pg", "author", "changelog-4.0"},
+	{"changelog-4.0", "author", "changelog-4.0"},
+	{"changelog-4.0-renaming", "author", "changelog-4.0"},
 }
 
 // ErrSchema is returned (wrapped) when the database isn't at a schema version Go knows.
@@ -106,6 +141,9 @@ func checkChangesets(applied []changeset) error {
 	known := map[changeset]knownChangeset{}
 	for _, k := range knownChangesets {
 		known[k.changeset] = k
+	}
+	for _, c := range legacyChangesets {
+		known[c] = knownChangeset{changeset: c, onPostgres: true, optional: true}
 	}
 	have := map[changeset]bool{}
 	var unknown, missing []string

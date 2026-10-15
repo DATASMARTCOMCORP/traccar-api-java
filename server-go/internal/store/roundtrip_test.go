@@ -350,14 +350,14 @@ func TestSchemaCheckOnDatabase(t *testing.T) {
 	if err := db.st.CheckSchema(ctx); !errors.Is(err, ErrSchema) {
 		t.Errorf("newer schema accepted: %v", err)
 	}
-	if _, err := db.copy.Exec(ctx, "DELETE FROM databasechangelog WHERE id IN ('changelog-9.9.9', 'changelog-6.15.0')"); err != nil {
+	if _, err := db.copy.Exec(ctx, "DELETE FROM databasechangelog WHERE id IN ('changelog-9.9.9', 'changelog-6.13.0')"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.st.CheckSchema(ctx); !errors.Is(err, ErrSchema) {
 		t.Errorf("older schema accepted: %v", err)
 	}
 	if _, err := db.copy.Exec(ctx, `INSERT INTO databasechangelog (id, author, filename, dateexecuted, orderexecuted, exectype)
-		VALUES ('changelog-6.15.0', 'author', 'changelog-6.15.0', now(), 34, 'EXECUTED')`); err != nil {
+		VALUES ('changelog-6.13.0', 'author', 'changelog-6.13.0', now(), 32, 'EXECUTED')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.copy.Exec(ctx, "UPDATE databasechangeloglock SET locked = true"); err != nil {

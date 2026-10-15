@@ -274,3 +274,22 @@ and need a decision before the steps that depend on them:
 7. **Time zones:** when the JVM reads a wall-clock time that is ambiguous or doesn't exist (DST
    transitions; São Paulo had DST until 2019), it resolves it to the **standard** offset. Go
    reproduces this explicitly (`internal/store`, tested with vectors from the oracle).
+
+### Step 0 results (2026-10-15, `inventory/results/2026-10-15.md`)
+
+- **Finding 1 confirmed:** production runs the jar from the current `master` build (same
+  SHA-256), so it lacks the SIR Suntech fix. Today it loses nothing, because production receives
+  **only OsmAnd** traffic: all 370 active devices, and every protocol counted in the last 30 days.
+- **Finding 2:** production *has* `changelog-6.13-dsc` (`area` is TEXT and geofences reach
+  270k characters), but lacks `6.13.0-fk-linkeddeviceid` and `6.15.0`, and carries 25 legacy
+  3.x/4.0 rows. The Go schema check accepts exactly that history. The harness oracle still
+  builds its schema from the current changelog (no DSC, with 6.15.0), so its geofence and id
+  column types differ from production's. Make it build a production-shaped schema before the API
+  steps compare geofences.
+- **Time zone:** America/Sao_Paulo on the host, the JVM and the DB. JDK 21 confirmed.
+- **Production config differs from `sir-dev.xml`:** `server.buffering.threshold=0`, and
+  `time.zone=America/Sao_Paulo`.
+- **Scope consequences:** the protocol port is OsmAnd only, unless the 90-day heavy query shows
+  otherwise. No computed attributes, scheduled reports or saved commands. Auth: passwords,
+  sessions, Basic auth and tokens only (no TOTP/LDAP/OpenID). The endpoint list is still open:
+  production has no request log.
