@@ -157,6 +157,8 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/nvs"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/nyitech"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/obddongle"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/oigo"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/oko"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/omnicomm"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/opengts"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/orbcomm"
@@ -177,7 +179,12 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/pst"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/pt215"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/pt3000"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/pt502"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/pt60"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/pui"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/r12w"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/r16h"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/racedynamics"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/raveon"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/recoda"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/retranslator"
@@ -408,6 +415,8 @@ var protocols = map[string]Constructor{
 	"nvs":            fixed(nvs.Protocol),
 	"nyitech":        fixed(nyitech.Protocol),
 	"obddongle":      fixed(obddongle.Protocol),
+	"oigo":           fixed(oigo.Protocol),
+	"oko":            fixed(oko.Protocol),
 	"omnicomm":       fixed(omnicomm.Protocol),
 	"opengts":        fixed(opengts.Protocol),
 	"orbcomm":        withConfig(orbcomm.Protocol),
@@ -428,7 +437,12 @@ var protocols = map[string]Constructor{
 	"pst":            fixed(pst.Protocol),
 	"pt215":          fixed(pt215.Protocol),
 	"pt3000":         fixed(pt3000.Protocol),
+	"pt502":          fixed(pt502.Protocol),
+	"pt60":           fixed(pt60.Protocol),
 	"pui":            fixed(pui.Protocol),
+	"r12w":           fixed(r12w.Protocol),
+	"r16h":           fixed(r16h.Protocol),
+	"racedynamics":   fixed(racedynamics.Protocol),
 	"raveon":         fixed(raveon.Protocol),
 	"recoda":         fixed(recoda.Protocol),
 	"retranslator":   fixed(retranslator.Protocol),
