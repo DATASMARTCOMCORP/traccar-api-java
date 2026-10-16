@@ -152,6 +152,11 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/neos"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/net"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/niot"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/noran"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/nto"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/nvs"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/nyitech"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/obddongle"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/omnicomm"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/opengts"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/orbcomm"
@@ -398,6 +403,11 @@ var protocols = map[string]Constructor{
 	"neos":           fixed(neos.Protocol),
 	"net":            fixed(net.Protocol),
 	"niot":           fixed(niot.Protocol),
+	"noran":          fixed(noran.Protocol),
+	"nto":            fixed(nto.Protocol),
+	"nvs":            fixed(nvs.Protocol),
+	"nyitech":        fixed(nyitech.Protocol),
+	"obddongle":      fixed(obddongle.Protocol),
 	"omnicomm":       fixed(omnicomm.Protocol),
 	"opengts":        fixed(opengts.Protocol),
 	"orbcomm":        withConfig(orbcomm.Protocol),

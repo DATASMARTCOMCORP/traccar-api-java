@@ -686,3 +686,30 @@ func clockDerived(got, want int64, r Record) bool {
 	}
 	return false
 }
+
+// FrameCases checks frame decoder cases copied from a Java test that asserts them with
+// assertEquals (not recorded): each pair is the input hex and the expected frame hex ("" for
+// null), through one frame decoder, in order, as the Java test method does.
+func FrameCases(t *testing.T, f ingest.Framer, cases ...[2]string) {
+	t.Helper()
+	env := NewEnv()
+	for i, c := range cases {
+		in, err := hex.DecodeString(c[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got any
+		var gotErr error
+		func() {
+			defer kit.Recover(&gotErr)
+			got = f.Frame(env.Message(Record{Now: time.Now().UnixMilli()}), kit.NewBuf(in))
+		}()
+		want := "<null>"
+		if c[1] != "" {
+			want = c[1]
+		}
+		if text := outputText(got, gotErr); text != want {
+			t.Errorf("case %d: frame\n\tgot  %s\n\tJava %s", i, text, want)
+		}
+	}
+}
