@@ -22,6 +22,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -70,6 +71,12 @@ type Traffic struct {
 	Protocol  string   // key into target.ports
 	Transport string   // "tcp", "udp" or "http" (osmand)
 	Messages  [][]byte // tcp/udp: one write or datagram each; http: "path?query" (GET) or "POST path\nbody"
+	// Separate sends each tcp/udp message on its own connection, so a decoder error that
+	// closes one doesn't hide the rest.
+	Separate bool
+	// ReplyIdle overrides how long a connection must be quiet before its replies are
+	// complete.
+	ReplyIdle time.Duration
 }
 
 // side is the state of one target during a run: variables saved from its responses and
@@ -347,33 +354,66 @@ func (r *side) traffic(ctx context.Context, tr *Traffic) (*response, error) {
 			out.body = fmt.Appendf(out.body, "%d %q\n", resp.StatusCode, data)
 		}
 	case "tcp", "udp":
-		conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, tr.Transport, addr)
-		if err != nil {
-			return nil, err
+		idle := replyIdle
+		if tr.ReplyIdle > 0 {
+			idle = tr.ReplyIdle
 		}
-		defer conn.Close()
-		buf := make([]byte, 64*1024)
-		for _, m := range tr.Messages {
-			if _, err := conn.Write(m); err != nil {
-				return nil, err
+		batches := [][][]byte{tr.Messages}
+		if tr.Separate {
+			batches = nil
+			for _, m := range tr.Messages {
+				batches = append(batches, [][]byte{m})
 			}
-			for {
-				_ = conn.SetReadDeadline(time.Now().Add(replyIdle))
-				n, err := conn.Read(buf)
-				out.body = append(out.body, buf[:n]...)
-				if err != nil {
-					var ne net.Error
-					if errors.As(err, &ne) && ne.Timeout() || errors.Is(err, io.EOF) {
-						break
-					}
-					return nil, err
-				}
+		}
+		for i, batch := range batches {
+			if tr.Separate {
+				out.body = fmt.Appendf(out.body, "#%d ", i) // which connection each reply came on
+			}
+			if err := exchange(ctx, tr.Transport, addr, batch, idle, out); err != nil {
+				return nil, err
 			}
 		}
 	default:
 		return nil, fmt.Errorf("unknown transport %q", tr.Transport)
 	}
 	return out, nil
+}
+
+// exchange writes messages on one connection, reading the replies after each until the
+// connection has been quiet for idle (or is closed).
+func exchange(ctx context.Context, transport, addr string, messages [][]byte, idle time.Duration, out *response) error {
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, transport, addr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	buf := make([]byte, 64*1024)
+	for _, m := range messages {
+		if _, err := conn.Write(m); err != nil {
+			if errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) {
+				out.body = fmt.Appendf(out.body, "closed\n")
+				return nil
+			}
+			return err
+		}
+		for {
+			_ = conn.SetReadDeadline(time.Now().Add(idle))
+			n, err := conn.Read(buf)
+			out.body = append(out.body, buf[:n]...)
+			if err != nil {
+				var ne net.Error
+				if errors.As(err, &ne) && ne.Timeout() {
+					break
+				}
+				if errors.Is(err, io.EOF) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNREFUSED) {
+					out.body = fmt.Appendf(out.body, "closed\n")
+					return nil
+				}
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // rawRequest sends request bytes as they are (a device's malformed or non-ASCII

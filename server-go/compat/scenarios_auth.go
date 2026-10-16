@@ -16,14 +16,15 @@ type suite struct {
 
 func suites() map[string]suite {
 	return map[string]suite{
-		"full":     {scenarios: library()},
-		"auth":     authSuite(),
-		"read":     readSuite(),
-		"crud":     crudSuite(),
-		"write":    writeSuite(),
-		"ingest":   ingestSuite(),
-		"buffered": bufferedSuite(),
-		"status":   statusSuite(),
+		"full":      {scenarios: library()},
+		"auth":      authSuite(),
+		"read":      readSuite(),
+		"crud":      crudSuite(),
+		"write":     writeSuite(),
+		"ingest":    ingestSuite(),
+		"buffered":  bufferedSuite(),
+		"status":    statusSuite(),
+		"protocols": protocolsSuite(),
 	}
 }
 

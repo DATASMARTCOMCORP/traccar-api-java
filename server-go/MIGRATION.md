@@ -486,3 +486,55 @@ Intel's code, under GPLv2 only. It carries their notice. Bit-exact `Math.sin` an
 need this code. Before the Go server is distributed outside the company, decide whether that
 license fits.
 
+### Step 7 (protocols), in progress
+
+**Done: the toolkit, osmand, suntech (with the SIR fix), intellitrac, atrack (custom mode).**
+
+- **Oracle.** `internal/protocol/oracle/testdata/java-vectors.jsonl.gz` records every call of the
+  455 Java protocol tests: 3,105 decoder calls with their full output (every field, doubles as
+  raw bits, attribute JSON and Java types, network, errors), 219 frame checks and 112 command
+  encodings. A recording `ProtocolTest` and rewritten encoder tests produce it without touching
+  `src/` (`oracle/recorder/record.sh`). `oracle.Run` replays a test class through the Go port and
+  requires identical output; the Java tests themselves only check ranges. The SIR Suntech methods
+  are recorded with the pre-merge decoder (§8).
+- **Toolkit** (`internal/protocol/kit`): Netty's `ByteBuf`, `PatternBuilder`/`Parser`,
+  `DateBuilder`, `DateTimeFormatter` parsing, `BitUtil`, `BcdUtil`, `Checksum`, Java's number
+  parsing and `String.format` (checked against 25,000 Java results), Java string indexes,
+  charsets. `internal/protocol/README.md` is the porting guide for the remaining protocols.
+- **Transports** (`internal/ingest`): Netty's frame decoders (line, delimiter, length field,
+  fixed), TCP with per-connection pipelines, UDP, HTTP; queued commands sent when a device
+  reports (`onMessageEvent`), live commands from the API on the device's connection
+  (`sendDataCommand`: encoder, custom text or hex), media files.
+- **Gate:** `go test ./internal/protocol/...` replays every Java vector of the ported protocols
+  (osmand 15, suntech 83 + 5 frames + 1 command, intellitrac 17, atrack 32 + 7 frames), and
+  the `protocols` harness suite sends them over real TCP and UDP connections to both servers,
+  with queued and live commands: replies and every table match Java.
+
+Findings:
+1. **Netty decodes `US_ASCII` one char per byte.** `ByteBuf.toString(US_ASCII)` and
+   `readCharSequence(US_ASCII)` keep bytes above 0x7F as Latin-1 characters; only the JDK's
+   `new String(bytes, US_ASCII)` replaces them. Step 6's OsmAnd port replaced them in form
+   bodies; fixed.
+2. **Queued commands are consumed even when they can't be sent.** When a device reports,
+   Java reads and deletes all its queued commands, then sends them. A command its encoder
+   returns null for (a Suntech output index above 3), or a type the protocol doesn't
+   declare, throws: the rest of the batch is lost (already deleted), the message's positions
+   are dropped, and a TCP connection is closed. OsmAnd is the exception: it returns one
+   queued command per response itself. Go does the same.
+3. **With several queued commands, Java's `queuedCommandSent` events are stored in an
+   arbitrary order** (an identity-hashed map), so the harness queues one command per report.
+4. Command responses for a command posted without `description` now carry `null` (Go wrote
+   `""`; the live-command path exposed it).
+5. Go's status sweep visited devices in random order (a Go map); it now follows Java's hash
+   order, so timeout events of several devices are stored in the same order.
+6. Strings decoded from device bytes are UTF-8 in Go and UTF-16 in Java: decoders index them
+   with `kit.Len/Substring/CharAt`, which use Java's indexes, never Go byte offsets.
+7. Absolute indexes in frame decoders: some Java frame decoders add lengths to buffer indexes
+   that are only right when the reader index is 0 (Atrack's text frames). Go reproduces the
+   arithmetic, but its reader index restarts at 0 with each read while Netty's depends on its
+   buffer cumulation, so a frame that starts after other bytes can be cut differently. Devices
+   send one frame per read in practice.
+
+Next: the other protocols, in batches that share frame decoders and helpers, each with its
+Java vectors and, for TCP/UDP ones, in the `protocols` suite.
+

@@ -29,6 +29,7 @@ It exits 0 when every scenario matches, 1 on differences, and 2 on setup errors.
 | `ingest` | devices, groups, geofences (two unparseable), calendars, maintenance, linked devices and queued commands created by Java; production's config (no buffering) | Step 6: OsmAnd in every input form and error path, `OsmAndProtocolDecoderTest`'s vectors, the in-house clients, queued commands, every event detector, filters, calendars, proximity, engine hours | **passes** (Step 6 gate) |
 | `buffered` | one device; `server.buffering.threshold` 5 s | release order of buffered fixes on one connection | **passes** |
 | `status` | one device; `event.status.enable`, `status.timeout` 4 s, `database.registerUnknown` | status events, the timeout to unknown, registration of unknown devices | **passes** |
+| `protocols` | four devices; `database.registerUnknown`, no buffering | Step 7: every decoder vector of the Java tests of the ported TCP/UDP protocols (suntech, intellitrac, atrack over TCP and UDP), each on its own connection, framed as a device sends it; queued commands through each encoder, custom data, unsupported and unencodable commands, a live command on an open UDP socket | **passes** (Step 7 gate) |
 
 A suite's **seed** runs once, through Java, on the template database before both sides are
 cloned. Both sides then start with the same Java-made rows (password hashes, the
@@ -38,6 +39,11 @@ create its data.
 
 A suite may override config entries (`suite.config`), for example production's
 `server.buffering.threshold=0`. The wait after device traffic follows the suite's threshold.
+
+TCP and UDP messages are written as bytes. A step can send each message on its own
+connection (`Separate`, so a decoder error that closes one doesn't hide the rest; the reply
+then shows `#n` before each connection's bytes). A reply ends with `closed` when the server
+closed the connection.
 
 OsmAnd messages are written as `path?query` (GET), `POST path\nform body`, `JSON path\nbody`
 (Content-Type `application/json`) or `RAW <bytes>` (sent as is on a new connection, for
