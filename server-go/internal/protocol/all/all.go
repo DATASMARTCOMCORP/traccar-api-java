@@ -267,6 +267,8 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/wialon"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/wli"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/wondex"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/wristband"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/xexun"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/xexun2"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/xexun3"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/xirgo"
@@ -548,6 +550,8 @@ var protocols = map[string]Constructor{
 	"wialon":         fixed(wialon.Protocol),
 	"wli":            fixed(wli.Protocol),
 	"wondex":         fixed(wondex.Protocol),
+	"wristband":      fixed(wristband.Protocol),
+	"xexun":          withConfig(xexun.Protocol),
 	"xexun2":         fixed(xexun2.Protocol),
 	"xexun3":         fixed(xexun3.Protocol),
 	"xirgo":          withConfig(xirgo.Protocol),
