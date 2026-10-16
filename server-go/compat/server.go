@@ -29,6 +29,8 @@ var protocols = []struct {
 	{"suntech", nil},
 	{"intellitrac", nil},
 	{"atrack", map[string]string{"atrack.custom": "true"}},
+	{"iotm", nil},
+	{"pui", nil},
 }
 
 // bufferingThreshold is server.buffering.threshold (as in sir-dev.xml): fixes are held in

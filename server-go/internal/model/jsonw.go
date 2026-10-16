@@ -84,14 +84,20 @@ func appendDouble(b []byte, f float64) []byte {
 //
 // Older JDKs (before 19) sometimes printed more digits than needed. The production JVM
 // version is checked in Step 0 (inventory/README.md section 2).
-func javaDouble(f float64) string {
+func javaDouble(f float64) string { return javaFloating(f, 64) }
+
+// JavaFloat is Float.toString (JDK 19 and later): as Double.toString, with the shortest
+// decimal that rounds back to the float.
+func JavaFloat(f float32) string { return javaFloating(float64(f), 32) }
+
+func javaFloating(f float64, bits int) string {
 	if f == 0 {
 		if math.Signbit(f) {
 			return "-0.0"
 		}
 		return "0.0"
 	}
-	digits, exp := shortestDigits(f) // f = 0.d1d2d3... × 10^exp
+	digits, exp := shortestDigits(f, bits) // f = 0.d1d2d3... × 10^exp
 	neg := f < 0
 
 	var b strings.Builder
@@ -130,15 +136,15 @@ func javaDouble(f float64) string {
 
 // shortestDigits returns the significant digits and decimal exponent Java chooses for
 // f (f != 0), as described in javaDouble.
-func shortestDigits(f float64) (string, int) {
-	digits, exp := splitE(strconv.FormatFloat(math.Abs(f), 'e', -1, 64))
+func shortestDigits(f float64, bits int) (string, int) {
+	digits, exp := splitE(strconv.FormatFloat(math.Abs(f), 'e', -1, bits))
 	if len(digits) != 1 {
 		return digits, exp
 	}
 	// One digit: Java also considers the two-digit decimals that round to f and picks
 	// the closest. FormatFloat with precision 1 is the closest two-digit decimal.
 	two, exp2 := splitE(strconv.FormatFloat(math.Abs(f), 'e', 1, 64))
-	if len(two) < 2 || !roundsTo(two, exp2, math.Abs(f)) {
+	if len(two) < 2 || !roundsTo(two, exp2, math.Abs(f), bits) {
 		return digits, exp
 	}
 	exact := new(big.Float).SetPrec(2000).SetFloat64(math.Abs(f))
@@ -162,8 +168,8 @@ func decimal(digits string, exp int) string {
 	return "0." + digits + "e" + strconv.Itoa(exp)
 }
 
-func roundsTo(digits string, exp int, f float64) bool {
-	v, err := strconv.ParseFloat(decimal(digits, exp), 64)
+func roundsTo(digits string, exp int, f float64, bits int) bool {
+	v, err := strconv.ParseFloat(decimal(digits, exp), bits)
 	return err == nil && v == f
 }
 

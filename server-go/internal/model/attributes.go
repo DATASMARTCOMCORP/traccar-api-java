@@ -8,6 +8,7 @@ import (
 	"io"
 	"iter"
 	"maps"
+	"math"
 	"math/big"
 	"slices"
 	"strconv"
@@ -170,6 +171,8 @@ func appendValue(b []byte, v any) ([]byte, error) {
 		return x.Append(b, 10), nil
 	case float64:
 		return appendDouble(b, x), nil
+	case Float:
+		return appendFloat(b, x), nil
 	case *Attributes:
 		return x.appendJSON(b)
 	case []any:
@@ -303,4 +306,17 @@ func parseNumber(lit string) (any, error) {
 		return nil, fmt.Errorf("attributes: bad number %q", lit)
 	}
 	return f, nil // ErrRange: ±Inf on overflow, ±0 on underflow, as Double.parseDouble
+}
+
+// Float is a java.lang.Float kept as such: decoders that put a Float into the attribute
+// map directly (not through set, which widens it to a Double) store this, and Jackson
+// writes it with Float.toString.
+type Float float32
+
+func appendFloat(b []byte, f Float) []byte {
+	v := float64(f)
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return appendDouble(b, v)
+	}
+	return append(b, JavaFloat(float32(f))...)
 }

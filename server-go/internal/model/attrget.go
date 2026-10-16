@@ -111,6 +111,11 @@ func JavaToString(v any) string {
 		return strconv.FormatInt(x, 10)
 	case float64:
 		return javaDouble(x)
+	case Float:
+		if v := float64(x); math.IsNaN(v) || math.IsInf(v, 0) {
+			return javaDouble(v)
+		}
+		return JavaFloat(float32(x))
 	case *big.Int:
 		return x.String()
 	case []any:

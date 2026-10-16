@@ -9,7 +9,9 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/ingest"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/atrack"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/intellitrac"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/iotm"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/osmand"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/pui"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/suntech"
 )
 
@@ -29,7 +31,9 @@ func withConfig(p func(*config.Config) (ingest.Protocol, error)) Constructor {
 var protocols = map[string]Constructor{
 	"atrack":      withConfig(atrack.Protocol),
 	"intellitrac": fixed(intellitrac.Protocol),
+	"iotm":        fixed(iotm.Protocol),
 	"osmand":      osmand.Protocol,
+	"pui":         fixed(pui.Protocol),
 	"suntech":     fixed(suntech.Protocol),
 }
 

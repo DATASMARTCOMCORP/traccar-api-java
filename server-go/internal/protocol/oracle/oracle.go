@@ -213,6 +213,12 @@ func DecodeInput(in *Input) (any, error) {
 		return kit.NewBuf(b), nil
 	case "string":
 		return in.Text, nil
+	case "mqtt": // the message's bytes, as MqttEncoder writes it
+		b, err := hex.DecodeString(in.Hex)
+		if err != nil {
+			return nil, err
+		}
+		return kit.NewBuf(b), nil
 	case "http":
 		b, err := hex.DecodeString(in.Hex)
 		if err != nil {
@@ -302,6 +308,9 @@ func Run(t *testing.T, test string, h Handlers) {
 				continue // the check of an encoder's output, recorded as "command"
 			}
 			if h.Framer == nil {
+				if h.Encoder != nil {
+					continue // an encoder test checking part of its output with verifyFrame
+				}
 				t.Fatalf("%s: no Go frame decoder", test)
 			}
 			if framers[r.Method] == nil {
@@ -568,7 +577,7 @@ func family(v any) string {
 	switch v.(type) {
 	case int64:
 		return "integer"
-	case float64:
+	case float64, model.Float:
 		return "double"
 	case string:
 		return "string"

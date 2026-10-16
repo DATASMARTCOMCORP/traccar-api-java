@@ -65,6 +65,27 @@ public class ProtocolTest extends BaseTest {
         }
     }
 
+    // An MQTT message as MqttEncoder writes it (MQTT 3.1.1), without consuming its payload.
+    static String mqttBytes(io.netty.handler.codec.mqtt.MqttMessage message) {
+        if (message instanceof io.netty.handler.codec.mqtt.MqttPublishMessage publish) {
+            // The tests' messages have no topic, which a device always sends: "" encodes them.
+            var header = publish.variableHeader();
+            message = new io.netty.handler.codec.mqtt.MqttPublishMessage(publish.fixedHeader(),
+                    new io.netty.handler.codec.mqtt.MqttPublishVariableHeader(
+                            header.topicName() != null ? header.topicName() : "", header.packetId(),
+                            header.properties()),
+                    publish.payload().copy());
+        }
+        var channel = new io.netty.channel.embedded.EmbeddedChannel(io.netty.handler.codec.mqtt.MqttEncoder.INSTANCE);
+        channel.writeOutbound(message);
+        var out = Unpooled.buffer();
+        for (ByteBuf b; (b = channel.readOutbound()) != null; ) {
+            out.writeBytes(b);
+            b.release();
+        }
+        return ByteBufUtil.hexDump(out);
+    }
+
     static Object describeInput(Object o) {
         var m = new java.util.LinkedHashMap<String, Object>();
         if (o instanceof ByteBuf b) {
@@ -85,6 +106,9 @@ public class ProtocolTest extends BaseTest {
             m.put("type", "httpResponse");
             m.put("status", r.status().code());
             m.put("hex", ByteBufUtil.hexDump(r.content()));
+        } else if (o instanceof io.netty.handler.codec.mqtt.MqttMessage mqtt) {
+            m.put("type", "mqtt");
+            m.put("hex", mqttBytes(mqtt));
         } else if (o == null) {
             m.put("type", "null");
         } else {
@@ -133,6 +157,8 @@ public class ProtocolTest extends BaseTest {
             return java.util.Map.of("bytes", ByteBufUtil.hexDump(b));
         } else if (o instanceof String str) {
             return java.util.Map.of("text", str);
+        } else if (o instanceof io.netty.handler.codec.mqtt.MqttMessage mqtt) {
+            return java.util.Map.of("bytes", mqttBytes(mqtt));
         } else if (o == null) {
             return null;
         }
