@@ -81,6 +81,7 @@ func vectorScenarios() []Scenario {
 		{"IntellitracProtocolDecoderTest", "intellitrac", frameLine("\r\n"), false},
 		{"AtrackProtocolDecoderTest", "atrack", frameAtrack, false},
 		{"AtrackProtocolDecoderTest", "atrack", unframed, true},
+		{"ArmoliProtocolDecoderTest", "armoli", frameLine(";"), false},
 	}
 	var out []Scenario
 	for _, s := range sources {

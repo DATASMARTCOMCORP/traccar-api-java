@@ -42,6 +42,22 @@ type Pipeline struct {
 	// FrameEncoder transforms every outgoing message's bytes (a frame encoder such as
 	// PstFrameEncoder, after the StringEncoder).
 	FrameEncoder func([]byte) []byte
+	// Poll is a BaseProtocolPoller: a request when the connection opens, then at every
+	// interval while it stays open.
+	Poll *Poller
+}
+
+// Poller is BaseProtocolPoller: Request runs on the connection's event loop.
+type Poller struct {
+	Interval time.Duration // 0 disables it
+	Request  func(m *Message)
+}
+
+// Client is a connection the server opens (a TrackerClient): to <protocol>.address and the
+// protocol's port, over TLS with <protocol>.ssl, reconnecting <protocol>.interval seconds
+// after it closes.
+type Client struct {
+	NewPipeline func() Pipeline
 }
 
 // Server is one listener of a protocol (a TrackerServer): TCP, UDP (Datagram) or HTTP.
@@ -56,6 +72,7 @@ type Server struct {
 type Protocol struct {
 	Name         string
 	Servers      []Server
+	Clients      []Client
 	DataCommands []string
 	// OwnQueue: the decoder reads the command queue itself, so onMessageEvent doesn't
 	// send queued commands (OsmAndProtocolDecoder overrides sendQueuedCommands).
@@ -135,6 +152,9 @@ func (p *Processor) ServeProtocol(proto Protocol, port int) (*Listener, error) {
 		}
 		errs = append(errs, err)
 	}
+	for _, c := range proto.Clients {
+		errs = append(errs, p.connectClient(l, proto, c, port))
+	}
 	return l, errors.Join(errs...)
 }
 
@@ -188,6 +208,11 @@ func (p *Processor) handleTCP(l *Listener, proto Protocol, pl Pipeline, c net.Co
 	}
 	conn.pipeline = &pl
 	defer p.channelInactive(conn, remote)
+	if pl.Poll != nil && pl.Poll.Interval > 0 {
+		stop := make(chan struct{})
+		defer close(stop)
+		go p.poll(conn, remote, pl.Poll, stop)
+	}
 
 	in := kit.Empty()
 	chunk := make([]byte, 64*1024)
@@ -332,3 +357,21 @@ func (l *Listener) untrack(c net.Conn) {
 type CommandEncoderFunc func(m *Message, command *model.Command) any
 
 func (f CommandEncoderFunc) Encode(m *Message, c *model.Command) any { return f(m, c) }
+
+// poll is BaseProtocolPoller's scheduleAtFixedRate(request, 0, interval).
+func (p *Processor) poll(conn *Conn, remote string, poller *Poller, stop <-chan struct{}) {
+	ticker := time.NewTicker(poller.Interval)
+	defer ticker.Stop()
+	for {
+		conn.loop.Lock()
+		poller.Request(NewMessage(p.ctx, conn, remote, time.Now()))
+		conn.loop.Unlock()
+		select {
+		case <-stop:
+			return
+		case <-p.ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}

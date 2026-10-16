@@ -213,6 +213,12 @@ func DecodeInput(in *Input) (any, error) {
 		return kit.NewBuf(b), nil
 	case "string":
 		return in.Text, nil
+	case "httpResponse": // a FullHttpResponse a client protocol received
+		b, err := hex.DecodeString(in.Hex)
+		if err != nil {
+			return nil, err
+		}
+		return &ingest.HTTPResponse{Status: in.Status, Body: b}, nil
 	case "mqtt": // the message's bytes, as MqttEncoder writes it
 		b, err := hex.DecodeString(in.Hex)
 		if err != nil {

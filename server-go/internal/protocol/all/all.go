@@ -7,9 +7,11 @@ import (
 
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/config"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/ingest"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/armoli"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/atrack"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/intellitrac"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/iotm"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/orbcomm"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/osmand"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/pui"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/suntech"
@@ -29,9 +31,11 @@ func withConfig(p func(*config.Config) (ingest.Protocol, error)) Constructor {
 
 // protocols are the ported protocols by name (Java's BaseProtocol.getName).
 var protocols = map[string]Constructor{
+	"armoli":      fixed(armoli.Protocol),
 	"atrack":      withConfig(atrack.Protocol),
 	"intellitrac": fixed(intellitrac.Protocol),
 	"iotm":        fixed(iotm.Protocol),
+	"orbcomm":     withConfig(orbcomm.Protocol),
 	"osmand":      osmand.Protocol,
 	"pui":         fixed(pui.Protocol),
 	"suntech":     fixed(suntech.Protocol),

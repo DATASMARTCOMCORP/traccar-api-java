@@ -30,6 +30,7 @@ var protocols = []struct {
 	{"intellitrac", nil},
 	{"atrack", map[string]string{"atrack.custom": "true"}},
 	{"iotm", nil},
+	{"armoli", nil},
 	{"pui", nil},
 }
 
