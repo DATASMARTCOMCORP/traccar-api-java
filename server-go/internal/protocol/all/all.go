@@ -206,6 +206,8 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/skypatrol"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/smartcar"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/smartsole"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/smokey"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/snapper"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/solarpowered"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/stb"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/stl060"
@@ -467,6 +469,8 @@ var protocols = map[string]Constructor{
 	"skypatrol":      withConfig(skypatrol.Protocol),
 	"smartcar":       fixed(smartcar.Protocol),
 	"smartsole":      fixed(smartsole.Protocol),
+	"smokey":         fixed(smokey.Protocol),
+	"snapper":        fixed(snapper.Protocol),
 	"solarpowered":   fixed(solarpowered.Protocol),
 	"stb":            fixed(stb.Protocol),
 	"stl060":         fixed(stl060.Protocol),
