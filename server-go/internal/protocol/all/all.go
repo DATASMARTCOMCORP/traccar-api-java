@@ -145,6 +145,13 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/solarpowered"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/suntech"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/topin"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/xexun2"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/xexun3"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/xirgo"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/xrb28"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/xt013"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/xt2400"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/ywt"
 )
 
 // A Constructor makes a protocol's definition from the configuration; zone is the
@@ -297,6 +304,13 @@ var protocols = map[string]Constructor{
 	"solarpowered":   fixed(solarpowered.Protocol),
 	"suntech":        fixed(suntech.Protocol),
 	"topin":          withConfig(topin.Protocol),
+	"xexun2":         fixed(xexun2.Protocol),
+	"xexun3":         fixed(xexun3.Protocol),
+	"xirgo":          withConfig(xirgo.Protocol),
+	"xrb28":          fixed(xrb28.Protocol),
+	"xt013":          fixed(xt013.Protocol),
+	"xt2400":         withConfig(xt2400.Protocol),
+	"ywt":            fixed(ywt.Protocol),
 }
 
 // Names returns the ported protocols' names, sorted.
