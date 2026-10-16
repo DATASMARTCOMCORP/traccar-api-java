@@ -27,7 +27,7 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/auth"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/config"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/ingest"
-	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/osmand"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/all"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/store"
 )
 
@@ -98,6 +98,7 @@ func run(ctx context.Context, args []string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	apiOpts.SendCommand = proc.SendCommand
 	port, err := cfg.Int(config.WebPort, config.DefaultWebPort)
 	if err != nil {
 		return err
@@ -138,30 +139,33 @@ func run(ctx context.Context, args []string, stderr io.Writer) error {
 
 // startProtocols opens the ports of the ported protocols, as Java's ServerManager does
 // for all of them: each protocol allowed by protocols.enable with a port above 0. Like
-// Java, a port that can't be bound is logged and skipped; a bad decoder option fails
+// Java, a server that can't listen is logged and skipped; a bad decoder option fails
 // startup.
 func startProtocols(cfg *config.Config, proc *ingest.Processor, zone *time.Location) ([]*ingest.Listener, error) {
 	var listeners []*ingest.Listener
-	enabled := func(name string) (int, error) {
+	for _, name := range all.Names() {
 		if !cfg.ProtocolEnabled(name) {
-			return 0, nil
+			continue
 		}
-		return cfg.Port(name)
-	}
-	if port, err := enabled("osmand"); err != nil {
-		return nil, err
-	} else if port > 0 {
-		dec, err := osmand.New(cfg, zone)
+		port, err := cfg.Port(name)
 		if err != nil {
 			return nil, err
 		}
-		l, err := proc.ServeHTTP("osmand", port, dec)
-		if err != nil {
-			slog.Warn("Port disabled due to conflict", "protocol", "osmand", "port", port, "error", err)
-		} else {
-			slog.Info("protocol started", "protocol", "osmand", "port", port)
-			listeners = append(listeners, l)
+		if port <= 0 {
+			continue
 		}
+		newProtocol, _ := all.Lookup(name)
+		proto, err := newProtocol(cfg, zone)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+		l, err := proc.ServeProtocol(proto, port)
+		if err != nil {
+			slog.Warn("Port disabled due to conflict", "protocol", name, "port", port, "error", err)
+		} else {
+			slog.Info("protocol started", "protocol", name, "port", port)
+		}
+		listeners = append(listeners, l)
 	}
 	return listeners, nil
 }

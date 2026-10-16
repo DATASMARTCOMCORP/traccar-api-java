@@ -15,7 +15,6 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/config"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/model"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/store"
-	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/units"
 )
 
 // Conn is one device connection, Netty's Channel: a TCP or HTTP connection, or a
@@ -24,80 +23,46 @@ type Conn struct {
 	p        *Processor
 	protocol string
 	datagram bool
-	http     bool // HTTP protocols: no live commands, no offline status on disconnect
+	http     bool   // HTTP protocols: no live commands, no offline status on disconnect
+	local    string // the local address
+	// write sends a reply or a command and waits for it to be written (nil for HTTP,
+	// where the decoder returns its response).
+	write    func(remote string, data any) error
+	pipeline *Pipeline // TCP and UDP
+	// dataCommands are the protocol's supported data commands (setSupportedDataCommands).
+	dataCommands []string
+	ownQueue     bool // Protocol.OwnQueue
+
+	// loop serializes the connection's work as Netty's event loop does: decoding and
+	// commands sent from elsewhere (the API) never run at the same time.
+	loop sync.Mutex
 }
 
-// Message is the context of one received message: what BaseProtocolDecoder gives Java
-// decoders.
-type Message struct {
-	conn   *Conn
-	remote string // host:port of the sender
-	Now    time.Time
-}
+// Conn implements Environment.
 
-// Protocol is the protocol name.
-func (m *Message) Protocol() string { return m.conn.protocol }
+func (c *Conn) Protocol() string       { return c.protocol }
+func (c *Conn) Config() *config.Config { return c.p.cfg }
 
-// Config is the server configuration.
-func (m *Message) Config() *config.Config { return m.conn.p.cfg }
-
-// NewPosition is new Position(protocol), stamped with the server time.
-func (m *Message) NewPosition() *model.Position {
-	protocol := m.conn.protocol
-	return &model.Position{Protocol: &protocol, ServerTime: model.NewTime(time.Now())}
-}
-
-func (m *Message) endpoint() endpoint {
-	return endpoint{conn: m.conn, remote: m.remote}
-}
-
-// DeviceSession is BaseProtocolDecoder.getDeviceSession. Nil means unknown; an error means
-// the Java decoder would throw (a disabled device, a database failure).
-func (m *Message) DeviceSession(ctx context.Context, uniqueIDs ...string) (*DeviceSession, error) {
-	return m.conn.p.sessions.deviceSession(ctx, m.endpoint(), uniqueIDs...)
-}
-
-// LastLocation is BaseProtocolDecoder.getLastLocation: a position without a fix of its
-// own, completed from the last position during processing.
-func (m *Message) LastLocation(pos *model.Position, deviceTime *time.Time) {
-	if pos.DeviceID != 0 {
-		pos.Outdated = true
-		if deviceTime != nil {
-			pos.DeviceTime = model.NewTime(*deviceTime)
-		}
-	}
-}
-
-// ConvertSpeed is BaseProtocolDecoder.convertSpeed: <protocol>.speed overrides the units
-// the protocol reports (kn by default), and the result is in knots.
-func (m *Message) ConvertSpeed(value float64, defaultUnits string) float64 {
-	switch m.conn.p.cfg.String(m.conn.protocol+".speed", defaultUnits) {
-	case "kmh":
-		return units.KnotsFromKph(value)
-	case "mps":
-		return units.KnotsFromMps(value)
-	case "mph":
-		return units.KnotsFromMph(value)
-	}
-	return value
+func (c *Conn) DeviceSession(ctx context.Context, remote string, uniqueIDs []string) (*DeviceSession, error) {
+	return c.p.sessions.deviceSession(ctx, endpoint{conn: c, remote: remote}, uniqueIDs...)
 }
 
 // QueuedCommands is CommandsManager.readQueuedCommands: up to limit (0: all) of the
 // device's queued commands, oldest first, deleted as they are read, each with a
 // queuedCommandSent event.
-func (m *Message) QueuedCommands(ctx context.Context, deviceID int64, limit int) ([]model.QueuedCommand, error) {
-	p := m.conn.p
+func (c *Conn) QueuedCommands(ctx context.Context, deviceID int64, limit int) ([]model.QueuedCommand, error) {
+	p := c.p
 	commands, err := p.st.QueuedCommands(ctx, deviceID, limit)
 	if err != nil {
 		return nil, err
 	}
 	var events []*model.Event
-	for _, c := range commands {
-		if err := store.Delete[model.QueuedCommand](ctx, p.st, c.ID); err != nil {
+	for _, q := range commands {
+		if err := store.Delete[model.QueuedCommand](ctx, p.st, q.ID); err != nil {
 			return nil, err
 		}
-		e := newDeviceEvent(model.EventQueuedCommandSent, c.DeviceID)
-		e.Attributes.Set("id", c.ID)
+		e := newDeviceEvent(model.EventQueuedCommandSent, q.DeviceID)
+		e.Attributes.Set("id", q.ID)
 		events = append(events, e)
 	}
 	// Java collects the events in a HashMap keyed by identity-hashed events, so with
@@ -107,8 +72,8 @@ func (m *Message) QueuedCommands(ctx context.Context, deviceID int64, limit int)
 }
 
 // UpdateNotificationToken is CommandsManager.updateNotificationToken.
-func (m *Message) UpdateNotificationToken(ctx context.Context, deviceID int64, token string) error {
-	p := m.conn.p
+func (c *Conn) UpdateNotificationToken(ctx context.Context, deviceID int64, token string) error {
+	p := c.p
 	ref := new(byte)
 	if err := p.cache.addDevice(ctx, deviceID, ref); err != nil {
 		return err
@@ -122,13 +87,47 @@ func (m *Message) UpdateNotificationToken(ctx context.Context, deviceID int64, t
 	return p.st.UpdateDeviceAttributes(ctx, &dc.device)
 }
 
-// finish is what ExtendedObjectDecoder.channelRead does after decode:
+func (c *Conn) Device(ctx context.Context, deviceID int64) (*model.Device, error) {
+	d, err := store.Get[model.Device](ctx, c.p.st, deviceID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+func (c *Conn) Lookup(ctx context.Context, deviceID int64, name string, server, cfg bool) (any, error) {
+	dc, err := c.p.loadContext(ctx, deviceID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, errJava // Java's lookup dereferences the missing device
+	}
+	if err != nil {
+		return nil, err
+	}
+	return dc.raw(ctx, key{name: name, server: server, config: cfg})
+}
+
+func (c *Conn) Send(remote string, data any) {
+	if c.write != nil {
+		if err := c.write(remote, data); err != nil {
+			c.p.log.Warn("["+c.protocol+" "+remote+"] reply not sent", "error", err)
+		}
+	}
+}
+
+func (c *Conn) LocalAddress() string { return c.local }
+
+// finish is what ExtendedObjectDecoder.channelRead does after decode (positions nil is the
+// decoder's null, a non-nil empty slice its empty collection):
 // BaseProtocolDecoder.onMessageEvent (statistics, online status, queued commands), the
 // empty-message case, and handing the positions to processing. raw is the message, for
 // database.saveOriginal. The returned function waits until the positions are processed
 // (server.delayAcknowledgement).
-func (m *Message) finish(ctx context.Context, positions []*model.Position, raw []byte, text bool) (wait func()) {
-	p := m.conn.p
+func (m *Message) finish(ctx context.Context, positions []*model.Position, raw []byte) (wait func(), err error) {
+	c := m.env.(*Conn)
+	p := c.p
 	p.stats.messageReceived(ctx)
 
 	// onMessageEvent: the devices of the positions, or the endpoint's device.
@@ -140,7 +139,7 @@ func (m *Message) finish(ctx context.Context, positions []*model.Position, raw [
 		}
 	}
 	if len(ids) == 0 {
-		if ds, err := m.DeviceSession(ctx); err == nil && ds != nil {
+		if ds, err := m.DeviceSession(); err == nil && ds != nil {
 			ids = append(ids, ds.DeviceID)
 		}
 	} else {
@@ -149,10 +148,17 @@ func (m *Message) finish(ctx context.Context, positions []*model.Position, raw [
 	for _, id := range ids {
 		now := time.Now()
 		p.sessions.updateDevice(ctx, id, model.StatusOnline, &now)
+		// sendQueuedCommands: a failure aborts the message, as Java's exception does.
+		if !c.ownQueue {
+			if err := c.sendQueuedCommands(m, id); err != nil {
+				return nil, err
+			}
+		}
 	}
 
-	if len(positions) == 0 && p.saveEmpty {
-		if ds, err := m.DeviceSession(ctx); err == nil && ds != nil {
+	// handleEmptyMessage: only for null, not for an empty list of positions.
+	if positions == nil && p.saveEmpty {
+		if ds, err := m.DeviceSession(); err == nil && ds != nil {
 			pos := m.NewPosition()
 			pos.DeviceID = ds.DeviceID
 			m.LastLocation(pos, nil)
@@ -169,9 +175,9 @@ func (m *Message) finish(ctx context.Context, positions []*model.Position, raw [
 			pos.Attributes.Set(model.KeyIP, hostString(m.remote))
 		}
 		wg.Add(1)
-		p.submit(m.conn, pos, wg.Done)
+		p.submit(c, pos, wg.Done)
 	}
-	return wg.Wait
+	return wg.Wait, nil
 }
 
 func hexDump(b []byte) string {
@@ -202,20 +208,21 @@ const maxHTTPLength = 64 * 1024
 
 type connKey struct{}
 
-// ServeHTTP listens for an HTTP protocol on <protocol>.address (a comma-separated list,
-// or all interfaces) and the given port, until Shutdown.
-func (p *Processor) ServeHTTP(protocol string, port int, dec HTTPDecoder) (*Listener, error) {
+// serveHTTP listens for an HTTP protocol on <protocol>.address (a comma-separated list,
+// or all interfaces) and the given port, until the listener is closed.
+func (p *Processor) serveHTTP(l *Listener, proto Protocol, port int, dec HTTPDecoder) error {
+	protocol := proto.Name
 	timeout, err := p.protocolTimeout(protocol)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	l := &Listener{p: p, protocol: protocol}
 	conns := sync.Map{} // net.Conn → *Conn
 	srv := &http.Server{
 		Handler:     p.httpHandler(protocol, dec),
 		IdleTimeout: timeout,
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
-			conn := &Conn{p: p, protocol: protocol, http: true}
+			conn := &Conn{p: p, protocol: protocol, http: true, local: c.LocalAddr().String(),
+				dataCommands: proto.DataCommands, ownQueue: proto.OwnQueue}
 			conns.Store(c, conn)
 			return context.WithValue(ctx, connKey{}, conn)
 		},
@@ -228,21 +235,26 @@ func (p *Processor) ServeHTTP(protocol string, port int, dec HTTPDecoder) (*List
 		},
 		ErrorLog: nil,
 	}
-	l.http = srv
+	var lns []net.Listener
 	for _, addr := range listenAddresses(p.cfg, protocol, port) {
 		ln, err := net.Listen("tcp", addr)
 		if err != nil {
-			l.Close()
-			return nil, fmt.Errorf("%s: %w", protocol, err)
+			for _, ln := range lns {
+				ln.Close()
+			}
+			return fmt.Errorf("%s: %w", protocol, err)
 		}
-		l.listeners = append(l.listeners, ln)
+		lns = append(lns, ln)
+	}
+	l.https = append(l.https, srv)
+	for _, ln := range lns {
 		go func() {
 			if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				p.log.Warn("protocol server stopped", "protocol", protocol, "error", err)
 			}
 		}()
 	}
-	return l, nil
+	return nil
 }
 
 // protocolTimeout is the idle timeout: <protocol>.timeout, else server.timeout (1800 s).
@@ -282,23 +294,33 @@ func (p *Processor) httpHandler(protocol string, dec HTTPDecoder) http.Handler {
 			writeNettyResponse(w, &HTTPResponse{Status: http.StatusRequestEntityTooLarge})
 			return
 		}
-		m := &Message{conn: conn, remote: r.RemoteAddr, Now: time.Now()}
 		ctx := p.ctx
+		m := NewMessage(ctx, conn, r.RemoteAddr, time.Now())
 		resp, positions, err := dec.DecodeHTTP(ctx, m, r, body)
 		if err != nil {
 			// MainEventHandler.exceptionCaught: logged, and the connection is closed.
 			p.log.Warn("["+conn.protocol+" "+r.RemoteAddr+"] error", "error", err)
 			panic(http.ErrAbortHandler)
 		}
-		raw := []byte(r.Method + " " + r.RequestURI)
+		// database.saveOriginal applies to byte and string messages, not HTTP requests.
+		// The Java decoder has sent its response when onMessageEvent fails (a queued
+		// command it can't send); the connection is then closed.
 		if p.delayAck {
-			wait := m.finish(ctx, positions, raw, true)
+			wait, err := m.finish(ctx, positions, nil)
+			if err != nil {
+				p.log.Warn("["+conn.protocol+" "+r.RemoteAddr+"] error", "error", err)
+				writeNettyResponse(w, resp)
+				panic(http.ErrAbortHandler)
+			}
 			wait()
 			writeNettyResponse(w, resp)
 			return
 		}
 		writeNettyResponse(w, resp)
-		m.finish(ctx, positions, raw, true)
+		if _, err := m.finish(ctx, positions, nil); err != nil {
+			p.log.Warn("["+conn.protocol+" "+r.RemoteAddr+"] error", "error", err)
+			panic(http.ErrAbortHandler)
+		}
 	})
 }
 
@@ -329,18 +351,30 @@ func (p *Processor) channelInactive(c *Conn, remote string) {
 type Listener struct {
 	p         *Processor
 	protocol  string
-	http      *http.Server
+	https     []*http.Server
 	listeners []net.Listener
+	packets   []net.PacketConn
+
+	mu    sync.Mutex
+	conns map[net.Conn]struct{}
 }
 
 // Close stops accepting connections and closes open ones.
 func (l *Listener) Close() error {
-	if l.http != nil {
-		return l.http.Close()
-	}
 	var errs []error
+	for _, srv := range l.https {
+		errs = append(errs, srv.Close())
+	}
 	for _, ln := range l.listeners {
 		errs = append(errs, ln.Close())
 	}
+	for _, pc := range l.packets {
+		errs = append(errs, pc.Close())
+	}
+	l.mu.Lock()
+	for c := range l.conns {
+		c.Close()
+	}
+	l.mu.Unlock()
 	return errors.Join(errs...)
 }

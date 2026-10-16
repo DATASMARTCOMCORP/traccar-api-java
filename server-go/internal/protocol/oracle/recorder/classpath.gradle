@@ -1,0 +1,5 @@
+allprojects {
+    tasks.register('printTestClasspath') {
+        doLast { println "CP=" + sourceSets.test.runtimeClasspath.asPath }
+    }
+}

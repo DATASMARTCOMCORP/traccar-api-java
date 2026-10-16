@@ -273,9 +273,15 @@ func (s *sessions) deviceUnknown(ctx context.Context, deviceID int64) {
 func (s *sessions) sweep(ctx context.Context) {
 	cutoff := time.Now().Add(-s.p.statusTimeout)
 	s.mu.Lock()
+	// Java walks a ConcurrentHashMap<Long, Long>: hash-table order, which a HashSet of
+	// the same keys reproduces.
+	ids := make([]int64, 0, len(s.lastSeen))
+	for id := range s.lastSeen {
+		ids = append(ids, id)
+	}
 	var idle []int64
-	for id, seen := range s.lastSeen {
-		if seen.Before(cutoff) {
+	for _, id := range model.NewLongSetOf(ids).Items() {
+		if s.lastSeen[id].Before(cutoff) {
 			idle = append(idle, id)
 		}
 	}

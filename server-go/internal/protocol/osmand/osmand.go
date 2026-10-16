@@ -13,11 +13,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/config"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/ingest"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/javatime"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/model"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/kit"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/units"
 )
 
@@ -50,54 +51,17 @@ func (d *Decoder) DecodeHTTP(ctx context.Context, m *ingest.Message, r *http.Req
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		return d.decodeJSON(ctx, m, body)
 	}
-	params, err := queryParams(latin1(r.RequestURI), true)
+	params, err := queryParams(kit.Latin1([]byte(r.RequestURI)), true) // the request line, one char per byte
 	if err != nil {
 		return nil, nil, err
 	}
 	if len(params) == 0 {
-		if params, err = queryParams(usASCII(body), false); err != nil {
+		// content().toString(US_ASCII): Netty decodes one char per byte
+		if params, err = queryParams(kit.Latin1(body), false); err != nil {
 			return nil, nil, err
 		}
 	}
 	return d.decodeQuery(ctx, m, params)
-}
-
-// latin1 is how Netty's HTTP decoder turns the request line into a Java string: one char
-// per byte.
-func latin1(s string) string {
-	if isASCII(s) {
-		return s
-	}
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		b.WriteRune(rune(s[i]))
-	}
-	return b.String()
-}
-
-// usASCII is ByteBuf.toString(US_ASCII): bytes above 0x7F become U+FFFD.
-func usASCII(body []byte) string {
-	if isASCII(string(body)) {
-		return string(body)
-	}
-	var b strings.Builder
-	for _, c := range body {
-		if c < 0x80 {
-			b.WriteByte(c)
-		} else {
-			b.WriteRune(utf8.RuneError)
-		}
-	}
-	return b.String()
-}
-
-func isASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] >= 0x80 {
-			return false
-		}
-	}
-	return true
 }
 
 func (d *Decoder) decodeQuery(ctx context.Context, m *ingest.Message, params []param) (*ingest.HTTPResponse, []*model.Position, error) {
@@ -111,7 +75,7 @@ func (d *Decoder) decodeQuery(ctx context.Context, m *ingest.Message, params []p
 		for _, value := range p.values {
 			switch p.name {
 			case "id", "deviceid":
-				ds, err := m.DeviceSession(ctx, value)
+				ds, err := m.DeviceSession(value)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -121,7 +85,7 @@ func (d *Decoder) decodeQuery(ctx context.Context, m *ingest.Message, params []p
 				pos.DeviceID = ds.DeviceID
 			case "notificationToken":
 				if pos.DeviceID > 0 {
-					if err := m.UpdateNotificationToken(ctx, pos.DeviceID, value); err != nil {
+					if err := m.UpdateNotificationToken(pos.DeviceID, value); err != nil {
 						return nil, nil, err
 					}
 				}
@@ -221,7 +185,7 @@ func (d *Decoder) decodeQuery(ctx context.Context, m *ingest.Message, params []p
 	}
 
 	if pos.FixTime.IsZero() {
-		now := model.NewTime(time.Now())
+		now := model.NewTime(m.Now)
 		pos.DeviceTime, pos.FixTime = now, now
 	}
 	if towers.Len() > 0 || wifis.Len() > 0 {
@@ -246,7 +210,7 @@ func (d *Decoder) decodeQuery(ctx context.Context, m *ingest.Message, params []p
 	if pos.DeviceID == 0 {
 		return badRequest, nil, nil
 	}
-	commands, err := m.QueuedCommands(ctx, pos.DeviceID, 1)
+	commands, err := m.QueuedCommands(pos.DeviceID, 1)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -373,7 +337,7 @@ func (d *Decoder) decodeJSON(ctx context.Context, m *ingest.Message, body []byte
 	if err != nil {
 		return nil, nil, err
 	}
-	ds, err := m.DeviceSession(ctx, deviceID)
+	ds, err := m.DeviceSession(deviceID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -590,3 +554,14 @@ func (n jsonNumber) longValue() int64 {
 }
 
 func (n jsonNumber) intValue() int32 { return int32(n.longValue()) }
+
+// Protocol is the protocol's definition: one HTTP server. zone is the server's zone, for
+// times without one.
+func Protocol(cfg *config.Config, zone *time.Location) (ingest.Protocol, error) {
+	d, err := New(cfg, zone)
+	if err != nil {
+		return ingest.Protocol{}, err
+	}
+	// The decoder returns queued commands in its responses (OwnQueue).
+	return ingest.Protocol{Name: "osmand", Servers: []ingest.Server{{HTTP: d}}, OwnQueue: true}, nil
+}

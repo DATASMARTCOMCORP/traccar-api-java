@@ -18,3 +18,7 @@ func SupportedCommands(protocol string, text bool) []string {
 	copied.Add("custom")
 	return copied.Items()
 }
+
+// DataCommands are the data commands a protocol declares (setSupportedDataCommands), in
+// declaration order.
+func DataCommands(protocol string) []string { return declaredCommands[protocol].data }
