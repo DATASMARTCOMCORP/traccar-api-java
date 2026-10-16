@@ -212,6 +212,7 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/spot"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/starcom"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/starlink"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/startek"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/stb"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/stl060"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/suntech"
@@ -227,6 +228,7 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/techtocruz"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tek"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/telemax"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/telic"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/thuraya"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tk102"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tk103"
@@ -478,6 +480,7 @@ var protocols = map[string]Constructor{
 	"spot":           fixed(spot.Protocol),
 	"starcom":        fixed(starcom.Protocol),
 	"starlink":       withConfig(starlink.Protocol),
+	"startek":        fixed(startek.Protocol),
 	"stb":            fixed(stb.Protocol),
 	"stl060":         fixed(stl060.Protocol),
 	"suntech":        fixed(suntech.Protocol),
@@ -493,6 +496,7 @@ var protocols = map[string]Constructor{
 	"techtocruz":     fixed(techtocruz.Protocol),
 	"tek":            fixed(tek.Protocol),
 	"telemax":        fixed(telemax.Protocol),
+	"telic":          fixed(telic.Protocol),
 	"thuraya":        fixed(thuraya.Protocol),
 	"tk102":          fixed(tk102.Protocol),
 	"tk103":          withConfig(tk103.Protocol),
