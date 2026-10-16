@@ -7,16 +7,30 @@ import (
 
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/config"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/ingest"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/atrack"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/intellitrac"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/osmand"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/suntech"
 )
 
 // A Constructor makes a protocol's definition from the configuration; zone is the
 // server's time zone (Java's default zone).
 type Constructor func(cfg *config.Config, zone *time.Location) (ingest.Protocol, error)
 
+func fixed(p func() ingest.Protocol) Constructor {
+	return func(*config.Config, *time.Location) (ingest.Protocol, error) { return p(), nil }
+}
+
+func withConfig(p func(*config.Config) (ingest.Protocol, error)) Constructor {
+	return func(cfg *config.Config, _ *time.Location) (ingest.Protocol, error) { return p(cfg) }
+}
+
 // protocols are the ported protocols by name (Java's BaseProtocol.getName).
 var protocols = map[string]Constructor{
-	"osmand": osmand.Protocol,
+	"atrack":      withConfig(atrack.Protocol),
+	"intellitrac": fixed(intellitrac.Protocol),
+	"osmand":      osmand.Protocol,
+	"suntech":     fixed(suntech.Protocol),
 }
 
 // Names returns the ported protocols' names, sorted.
