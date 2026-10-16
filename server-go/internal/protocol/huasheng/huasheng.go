@@ -110,10 +110,10 @@ func decodeAlarm(event int) string {
 func decode(m *ingest.Message, msg any) any {
 	buf := msg.(*kit.Buf)
 
-	buf.Skip(1)                // start marker
-	buf.ReadUnsignedByte()     // flag
-	buf.ReadUnsignedByte()     // reserved
-	buf.ReadUnsignedShort()    // length
+	buf.Skip(1)             // start marker
+	buf.ReadUnsignedByte()  // flag
+	buf.ReadUnsignedByte()  // reserved
+	buf.ReadUnsignedShort() // length
 	msgType := buf.ReadUnsignedShort()
 	buf.ReadUnsignedShort() // checksum
 	index := buf.ReadInt()

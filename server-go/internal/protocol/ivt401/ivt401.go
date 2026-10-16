@@ -53,21 +53,21 @@ var pattern = kit.NewPattern().
 	Number("(d+),").         // trip
 	Number("(d+),").         // odometer
 	GroupBegin().
-	Number("([01]),").        // overspeed
-	Number("[01],").          // input 2 misuse
-	Number("[01],").          // immobilizer
-	Number("[01],").          // temperature alert
-	Number("[0-2]+,").        // geofence
-	Number("([0-3]),").       // harsh driving
-	Number("[01],").          // reconnect
-	Number("([01]),").        // low battery
-	Number("([01]),").        // power disconnected
-	Number("[01],").          // gps failure
-	Number("([01]),").        // towing
-	Number("[01],").          // server unreachable
-	Number("[128],").         // sleep mode
-	Expression("([^,]+)?,").  // driver id
-	Number("d+,").            // sms count
+	Number("([01]),").       // overspeed
+	Number("[01],").         // input 2 misuse
+	Number("[01],").         // immobilizer
+	Number("[01],").         // temperature alert
+	Number("[0-2]+,").       // geofence
+	Number("([0-3]),").      // harsh driving
+	Number("[01],").         // reconnect
+	Number("([01]),").       // low battery
+	Number("([01]),").       // power disconnected
+	Number("[01],").         // gps failure
+	Number("([01]),").       // towing
+	Number("[01],").         // server unreachable
+	Number("[128],").        // sleep mode
+	Expression("([^,]+)?,"). // driver id
+	Number("d+,").           // sms count
 	GroupEndWith("?").
 	Any().
 	Compile()
@@ -84,7 +84,6 @@ func numericValue(c rune) int {
 	}
 	return -1
 }
-
 
 func alarmIf(pos *model.Position, cond bool, alarm string) {
 	if cond {

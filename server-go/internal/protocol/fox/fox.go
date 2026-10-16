@@ -25,27 +25,27 @@ func Protocol() ingest.Protocol {
 }
 
 var pattern = kit.NewPattern().
-	Number("(d+),").          // status id
-	Expression("([AV]),").    // validity
-	Number("(dd)(dd)(dd),").  // date (ddmmyy)
-	Number("(dd)(dd)(dd),").  // time (hhmmss)
-	Number("(dd)(dd.d+),").   // latitude
-	Expression("([NS]),").    //
-	Number("(ddd)(dd.d+),").  // longitude
-	Expression("([EW]),").    //
-	Number("(d+.?d*)?,").     // speed
-	Number("(d+.?d*)?,").     // course
-	Expression("[^,]*,").     // cell info
-	Number("([01]+) ").       // input
-	Number("(d+) ").          // power
-	Number("(d+) ").          // temperature
-	Number("(d+) ").          // rpm
-	Number("(d+) ").          // fuel
-	Number("(d+) ").          // adc 1
-	Number("(d+) ").          // adc 2
-	Number("([01]+) ").       // output
-	Number("(d+),").          // odometer
-	Expression("(.+)").       // status info
+	Number("(d+),").         // status id
+	Expression("([AV]),").   // validity
+	Number("(dd)(dd)(dd),"). // date (ddmmyy)
+	Number("(dd)(dd)(dd),"). // time (hhmmss)
+	Number("(dd)(dd.d+),").  // latitude
+	Expression("([NS]),").   //
+	Number("(ddd)(dd.d+),"). // longitude
+	Expression("([EW]),").   //
+	Number("(d+.?d*)?,").    // speed
+	Number("(d+.?d*)?,").    // course
+	Expression("[^,]*,").    // cell info
+	Number("([01]+) ").      // input
+	Number("(d+) ").         // power
+	Number("(d+) ").         // temperature
+	Number("(d+) ").         // rpm
+	Number("(d+) ").         // fuel
+	Number("(d+) ").         // adc 1
+	Number("(d+) ").         // adc 2
+	Number("([01]+) ").      // output
+	Number("(d+),").         // odometer
+	Expression("(.+)").      // status info
 	Compile()
 
 // attribute finds key="value" in the XML text; nil when it is missing.

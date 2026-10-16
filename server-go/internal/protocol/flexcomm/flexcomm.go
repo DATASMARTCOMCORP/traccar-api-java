@@ -28,29 +28,29 @@ func Protocol() ingest.Protocol {
 
 var pattern = kit.NewPattern().
 	Text("7E").
-	Number("(dd)").                       // status
-	Number("(d{15})").                    // imei
-	Number("(dddd)(dd)(dd)").             // date (yyyymmdd)
-	Number("(dd)(dd)(dd)").               // time (hhmmss)
-	Expression("([01])").                 // valid
-	Number("(d{9})").                     // latitude
-	Number("(d{10})").                    // longitude
-	Number("(d{4})").                     // altitude
-	Number("(ddd)").                      // speed
-	Number("(ddd)").                      // course
-	Number("(dd)").                       // satellites view
-	Number("(dd)").                       // satellites used
-	Number("(dd)").                       // rssi
-	Number("(ddd)").                      // mcc
-	Number("(ddd)").                      // mnc
-	Number("(x{6})").                     // lac
-	Number("(x{6})").                     // cid
-	Expression("([01])([01])([01])").     // input
-	Expression("([01])([01])").           // output
-	Number("(ddd)").                      // fuel
-	Number("(d{4})").                     // temperature
-	Number("(ddd)").                      // battery
-	Number("(ddd)").                      // power
+	Number("(dd)").                   // status
+	Number("(d{15})").                // imei
+	Number("(dddd)(dd)(dd)").         // date (yyyymmdd)
+	Number("(dd)(dd)(dd)").           // time (hhmmss)
+	Expression("([01])").             // valid
+	Number("(d{9})").                 // latitude
+	Number("(d{10})").                // longitude
+	Number("(d{4})").                 // altitude
+	Number("(ddd)").                  // speed
+	Number("(ddd)").                  // course
+	Number("(dd)").                   // satellites view
+	Number("(dd)").                   // satellites used
+	Number("(dd)").                   // rssi
+	Number("(ddd)").                  // mcc
+	Number("(ddd)").                  // mnc
+	Number("(x{6})").                 // lac
+	Number("(x{6})").                 // cid
+	Expression("([01])([01])([01])"). // input
+	Expression("([01])([01])").       // output
+	Number("(ddd)").                  // fuel
+	Number("(d{4})").                 // temperature
+	Number("(ddd)").                  // battery
+	Number("(ddd)").                  // power
 	Any().
 	Compile()
 

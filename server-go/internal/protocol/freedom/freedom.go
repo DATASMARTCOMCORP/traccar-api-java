@@ -24,13 +24,13 @@ func Protocol() ingest.Protocol {
 
 var pattern = kit.NewPattern().
 	Text("IMEI,").
-	Number("(d+),").                 // imei
-	Number("(dddd)/(dd)/(dd), ").    // date (yyyy/dd/mm)
-	Number("(dd):(dd):(dd), ").      // time (hh:mm:ss)
-	Expression("([NS]), ").          //
-	Number("Lat:(dd)(d+.d+), ").     // latitude
-	Expression("([EW]), ").          //
-	Number("Lon:(ddd)(d+.d+), ").    // longitude
+	Number("(d+),").                // imei
+	Number("(dddd)/(dd)/(dd), ").   // date (yyyy/dd/mm)
+	Number("(dd):(dd):(dd), ").     // time (hh:mm:ss)
+	Expression("([NS]), ").         //
+	Number("Lat:(dd)(d+.d+), ").    // latitude
+	Expression("([EW]), ").         //
+	Number("Lon:(ddd)(d+.d+), ").   // longitude
 	Text("Spd:").Number("(d+.d+)"). // speed
 	Any().
 	Compile()

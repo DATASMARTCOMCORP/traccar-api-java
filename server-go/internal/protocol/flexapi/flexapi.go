@@ -47,7 +47,7 @@ func (o *jsonObject) has(key string) bool {
 	return ok
 }
 
-func (o *jsonObject) getInt(key string) int       { return number(o.values[key]).intValue() }
+func (o *jsonObject) getInt(key string) int        { return number(o.values[key]).intValue() }
 func (o *jsonObject) getDouble(key string) float64 { return number(o.values[key]).double() }
 func (o *jsonObject) getString(key string) string  { return str(o.values[key]) }
 

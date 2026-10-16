@@ -41,9 +41,9 @@ func Framer() ingest.Framer {
 
 var patternGPS = kit.NewPattern().
 	Text("GPS:").
-	Expression("([AV]),").         // validity
-	Number("(dd)(dd)(dd)").        // date (yymmdd)
-	Number("(dd)(dd)(dd),").       // time (hhmmss)
+	Expression("([AV]),").   // validity
+	Number("(dd)(dd)(dd)").  // date (yymmdd)
+	Number("(dd)(dd)(dd),"). // time (hhmmss)
 	GroupBegin().
 	Number("(dd)(dd.d+)([NS]),").  // latitude
 	Number("(ddd)(dd.d+)([EW]),"). // longitude

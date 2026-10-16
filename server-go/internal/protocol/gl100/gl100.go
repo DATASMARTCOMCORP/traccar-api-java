@@ -40,15 +40,15 @@ var pattern = kit.NewPattern().
 	Or().
 	Number("[^,]*"). // calling number
 	GroupEndWith(",").
-	Expression("([01]),").       // gps fix
-	Number("(d+.d),").           // speed
-	Number("(d+),").             // course
-	Number("(-?d+.d),").         // altitude
-	Number("d*,").               // gps accuracy
-	Number("(-?d+.d+),").        // longitude
-	Number("(-?d+.d+),").        // latitude
-	Number("(dddd)(dd)(dd)").    // date (yyyymmdd)
-	Number("(dd)(dd)(dd),").     // time (hhmmss)
+	Expression("([01]),").    // gps fix
+	Number("(d+.d),").        // speed
+	Number("(d+),").          // course
+	Number("(-?d+.d),").      // altitude
+	Number("d*,").            // gps accuracy
+	Number("(-?d+.d+),").     // longitude
+	Number("(-?d+.d+),").     // latitude
+	Number("(dddd)(dd)(dd)"). // date (yyyymmdd)
+	Number("(dd)(dd)(dd),").  // time (hhmmss)
 	Any().
 	Compile()
 

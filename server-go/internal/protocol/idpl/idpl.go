@@ -23,30 +23,30 @@ func Protocol() ingest.Protocol {
 }
 
 var pattern = kit.NewPattern().
-	Text("*ID").                            // start of frame
-	Number("(d+),").                        // command code
-	Number("(d+),").                        // imei
-	Number("(dd)(dd)(dd),").                // current date (ddmmyy)
-	Number("(dd)(dd)(dd),").                // current time (hhmmss)
-	Expression("([A|V]),").                 // gps fix
-	Number("(dd)(dd).?(d+),([NS]),").       // latitude
-	Number("(ddd)(dd).?(d+),([EW]),").      // longitude
-	Number("(d{1,3}.dd),").                 // speed
-	Number("(d{1,3}.dd),").                 // course
-	Number("(d{1,2}),").                    // sats
-	Number("(d{1,3}),").                    // gsm signal strength
-	Expression("([A|N|S]),").               // vehicle status
-	Expression("([0|1]),").                 // main power status
-	Number("(d.dd),").                      // internal battery voltage
-	Expression("([0|1]),").                 // sos alert
-	Expression("([0|1]),").                 // body tamper
-	Expression("([0|1])([0|1]),").          // ac status + ign status
-	Expression("([0|1|2]),").               // output1 status
-	Number("(d{1,3}),").                    // adc1
-	Number("(d{1,3}),").                    // adc2
-	Expression("([0-9A-Z]{3}),").           // software version
-	Expression("([L|R]),").                 // message type
-	Number("(x{4})#").                      // crc
+	Text("*ID").                       // start of frame
+	Number("(d+),").                   // command code
+	Number("(d+),").                   // imei
+	Number("(dd)(dd)(dd),").           // current date (ddmmyy)
+	Number("(dd)(dd)(dd),").           // current time (hhmmss)
+	Expression("([A|V]),").            // gps fix
+	Number("(dd)(dd).?(d+),([NS]),").  // latitude
+	Number("(ddd)(dd).?(d+),([EW]),"). // longitude
+	Number("(d{1,3}.dd),").            // speed
+	Number("(d{1,3}.dd),").            // course
+	Number("(d{1,2}),").               // sats
+	Number("(d{1,3}),").               // gsm signal strength
+	Expression("([A|N|S]),").          // vehicle status
+	Expression("([0|1]),").            // main power status
+	Number("(d.dd),").                 // internal battery voltage
+	Expression("([0|1]),").            // sos alert
+	Expression("([0|1]),").            // body tamper
+	Expression("([0|1])([0|1]),").     // ac status + ign status
+	Expression("([0|1|2]),").          // output1 status
+	Number("(d{1,3}),").               // adc1
+	Number("(d{1,3}),").               // adc2
+	Expression("([0-9A-Z]{3}),").      // software version
+	Expression("([L|R]),").            // message type
+	Number("(x{4})#").                 // crc
 	Compile()
 
 func decode(m *ingest.Message, msg any) any {

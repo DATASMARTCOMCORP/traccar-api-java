@@ -73,11 +73,11 @@ var pattern = kit.NewPattern().
 	Text("$").
 	Expression(",?[^,]+,"). // event
 	GroupBegin().
-	Expression("[^,]*,").           // vendor
-	Expression("[^,]+,").           // firmware version
-	Expression("(..),").            // status
-	Number("(d+),").Optional().     // event
-	Expression("([LH]),").          // history
+	Expression("[^,]*,").       // vendor
+	Expression("[^,]+,").       // firmware version
+	Expression("(..),").        // status
+	Number("(d+),").Optional(). // event
+	Expression("([LH]),").      // history
 	Or().
 	Expression("([^,]+),"). // type
 	GroupEnd().
@@ -85,14 +85,14 @@ var pattern = kit.NewPattern().
 	GroupBegin().
 	Expression("([^,]{2}),"). // status
 	Or().
-	Expression("[^,]*,").       // vehicle registration
+	Expression("[^,]*,").         // vehicle registration
 	Number("([01]),").Optional(). // valid
 	GroupEnd().
-	Number("(dd),?(dd),?(d{2,4}),?").    // date (ddmmyyyy)
-	Number("(dd),?(dd),?(dd),").         // time (hhmmss)
-	Expression("([01AV]),").Optional().  // valid
-	Number("(d+.d+),([NS]),").           // latitude
-	Number("(d+.d+),([EW]),").           // longitude
+	Number("(dd),?(dd),?(d{2,4}),?").   // date (ddmmyyyy)
+	Number("(dd),?(dd),?(dd),").        // time (hhmmss)
+	Expression("([01AV]),").Optional(). // valid
+	Number("(d+.d+),([NS]),").          // latitude
+	Number("(d+.d+),([EW]),").          // longitude
 	GroupBegin().
 	Number("(d+.?d*),"). // speed
 	Number("(d+.?d*),"). // course
@@ -112,14 +112,14 @@ var pattern = kit.NewPattern().
 	Number("([012]{4}),").   // inputs
 	Number("([01]{2}),").    // outputs
 	GroupBegin().
-	Number("d+,").          // index
-	Number("(d+.?d*),").    // odometer
-	Number("(d+.?d*),").    // adc1
-	Number("(-?d+.?d*),").  // acceleration x
-	Number("(-?d+.?d*),").  // acceleration y
-	Number("(-?d+.?d*),").  // acceleration z
-	Number("(-?d+),").      // tilt y
-	Number("(-?d+),").      // tilt x
+	Number("d+,").         // index
+	Number("(d+.?d*),").   // odometer
+	Number("(d+.?d*),").   // adc1
+	Number("(-?d+.?d*),"). // acceleration x
+	Number("(-?d+.?d*),"). // acceleration y
+	Number("(-?d+.?d*),"). // acceleration z
+	Number("(-?d+),").     // tilt y
+	Number("(-?d+),").     // tilt x
 	Or().
 	Number("d+,").       // index
 	Number("(d+.?d*),"). // odometer

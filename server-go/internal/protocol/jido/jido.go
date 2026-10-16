@@ -36,20 +36,20 @@ var pattern = kit.NewPattern().
 	Number("(d+)(dd.d+),").           // longitude
 	Expression("([EW]),").            //
 	GroupBegin().
-	Number("(d+),").       // speed
-	Number("(d+),").       // odometer
-	Number("(d+),").       // course
-	Number("(-?d+),").     // altitude
-	Number("(d+),").       // satellites
-	Number("d+,").         // gsm 1
-	Number("d+,").         // gsm 2
-	Number("([01]),").     // charging
-	Number("(d+),").       // battery level
+	Number("(d+),").        // speed
+	Number("(d+),").        // odometer
+	Number("(d+),").        // course
+	Number("(-?d+),").      // altitude
+	Number("(d+),").        // satellites
+	Number("d+,").          // gsm 1
+	Number("d+,").          // gsm 2
+	Number("([01]),").      // charging
+	Number("(d+),").        // battery level
 	Expression("([YKN]),"). // mode
-	Number("([01]),").     // lock
-	Number("[^,]+,").      // accelerometer x
-	Number("[^,]+,").      // accelerometer y
-	Number("[^,]+,").      // accelerometer z
+	Number("([01]),").      // lock
+	Number("[^,]+,").       // accelerometer x
+	Number("[^,]+,").       // accelerometer y
+	Number("[^,]+,").       // accelerometer z
 	Or().
 	Expression("[^,]*,"). // data
 	GroupEnd().
