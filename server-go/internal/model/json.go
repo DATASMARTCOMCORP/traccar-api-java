@@ -268,7 +268,7 @@ func (c Command) MarshalJSON() ([]byte, error) {
 	o.int("deviceId", c.DeviceID)
 	o.str("type", c.Type)
 	o.boolean("textChannel", c.TextChannel)
-	o.str("description", c.Description)
+	o.nullStr("description", c.Description)
 	return o.end()
 }
 

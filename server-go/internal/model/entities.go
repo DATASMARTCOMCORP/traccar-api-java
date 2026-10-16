@@ -190,7 +190,7 @@ type Command struct {
 	ID          int64
 	Attributes  Attributes
 	DeviceID    int64
-	Description string
+	Description *string // NOT NULL in tc_commands; nil in a command posted without one
 	Type        string
 	TextChannel bool
 }
@@ -296,32 +296,4 @@ const (
 	EventMaintenance        = "maintenance"
 	EventDriverChanged      = "driverChanged"
 	EventMedia              = "media"
-)
-
-// Position attribute names (Position.KEY_*) that processing reads or writes.
-const (
-	KeyOriginal       = "raw"
-	KeyHdop           = "hdop"
-	KeyEvent          = "event"
-	KeyAlarm          = "alarm"
-	KeyOdometer       = "odometer"
-	KeyHours          = "hours"
-	KeyImage          = "image"
-	KeyVideo          = "video"
-	KeyAudio          = "audio"
-	KeyBatteryLevel   = "batteryLevel"
-	KeyFuel           = "fuel"
-	KeyIgnition       = "ignition"
-	KeyCharge         = "charge"
-	KeyIP             = "ip"
-	KeyDistance       = "distance"
-	KeyTotalDistance  = "totalDistance"
-	KeyApproximate    = "approximate"
-	KeyMotion         = "motion"
-	KeySpeedLimit     = "speedLimit"
-	KeyResult         = "result"
-	KeyDriverUniqueID = "driverUniqueId"
-
-	AlarmAcceleration = "hardAcceleration"
-	AlarmBraking      = "hardBraking"
 )

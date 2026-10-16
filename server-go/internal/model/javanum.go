@@ -119,16 +119,26 @@ func isHex(c byte) bool   { return isDigit(c) || c >= 'a' && c <= 'f' || c >= 'A
 // ParseInt is Integer.parseInt: an optional sign and decimal digits, nothing else (no
 // whitespace), within int32.
 func ParseInt(s string) (int32, error) {
-	v, err := parseJavaInteger(s, 32)
+	v, err := parseJavaInteger(s, 10, 32)
 	return int32(v), err
 }
 
 // ParseLong is Long.parseLong.
-func ParseLong(s string) (int64, error) { return parseJavaInteger(s, 64) }
+func ParseLong(s string) (int64, error) { return parseJavaInteger(s, 10, 64) }
 
-// parseJavaInteger accepts any Unicode decimal digit, as Character.digit does ("١٢" is
-// 12), and rejects overflow.
-func parseJavaInteger(s string, bits int) (int64, error) {
+// ParseIntRadix is Integer.parseInt(s, radix).
+func ParseIntRadix(s string, radix int) (int32, error) {
+	v, err := parseJavaInteger(s, radix, 32)
+	return int32(v), err
+}
+
+// ParseLongRadix is Long.parseLong(s, radix).
+func ParseLongRadix(s string, radix int) (int64, error) { return parseJavaInteger(s, radix, 64) }
+
+// parseJavaInteger accepts any digit Character.digit accepts: Unicode decimal digits
+// ("١٢" is 12) and, above radix 10, ASCII and fullwidth Latin letters. It rejects
+// overflow.
+func parseJavaInteger(s string, radix, bits int) (int64, error) {
 	digits, negative := s, false
 	if digits != "" && (digits[0] == '+' || digits[0] == '-') {
 		negative = digits[0] == '-'
@@ -142,17 +152,37 @@ func parseJavaInteger(s string, bits int) (int64, error) {
 		b.WriteByte('-')
 	}
 	for _, r := range digits {
-		d, ok := decimalDigit(r)
+		d, ok := javaDigit(r, radix)
 		if !ok {
 			return 0, errNumberFormat
 		}
-		b.WriteByte(byte('0' + d))
+		b.WriteByte("0123456789abcdefghijklmnopqrstuvwxyz"[d])
 	}
-	v, err := strconv.ParseInt(b.String(), 10, bits)
+	v, err := strconv.ParseInt(b.String(), radix, bits)
 	if err != nil {
 		return 0, errNumberFormat
 	}
 	return v, nil
+}
+
+// javaDigit is Character.digit(char, radix).
+func javaDigit(r rune, radix int) (int, bool) {
+	d := -1
+	switch {
+	case 'a' <= r && r <= 'z':
+		d = int(r-'a') + 10
+	case 'A' <= r && r <= 'Z':
+		d = int(r-'A') + 10
+	case 0xFF41 <= r && r <= 0xFF5A:
+		d = int(r-0xFF41) + 10
+	case 0xFF21 <= r && r <= 0xFF3A:
+		d = int(r-0xFF21) + 10
+	default:
+		if v, ok := decimalDigit(r); ok {
+			d = v
+		}
+	}
+	return d, d >= 0 && d < radix
 }
 
 // decimalDigit is Character.digit(char, 10) for decimal digits: the value of any Unicode

@@ -6,7 +6,9 @@ package javatime
 
 import (
 	"errors"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -326,4 +328,31 @@ func validZoneID(id string) bool {
 		return true
 	}
 	return false
+}
+
+var customID = regexp.MustCompile(`^GMT([+-])(\d{1,2})(?::?(\d{2}))?$`)
+
+// TimeZone is java.util.TimeZone.getTimeZone(id): a zone id, a custom "GMT+h[h][[:]mm]"
+// offset, or GMT for anything else.
+func TimeZone(id string) *time.Location {
+	if IsZoneID(id) {
+		if loc, err := time.LoadLocation(id); err == nil {
+			return loc
+		}
+	}
+	if m := customID.FindStringSubmatch(id); m != nil {
+		h, _ := strconv.Atoi(m[2])
+		mins := 0
+		if m[3] != "" {
+			mins, _ = strconv.Atoi(m[3])
+		}
+		if h <= 23 && mins <= 59 {
+			off := h*3600 + mins*60
+			if m[1] == "-" {
+				off = -off
+			}
+			return time.FixedZone(id, off)
+		}
+	}
+	return time.UTC
 }

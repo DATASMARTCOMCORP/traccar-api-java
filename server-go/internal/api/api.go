@@ -46,6 +46,9 @@ type Options struct {
 	// PushCommands: a push command sender is configured (command.client.serviceAccount
 	// or notificator.traccar.key).
 	PushCommands bool
+	// SendCommand sends a command to the device's live connection (DeviceSession.
+	// sendCommand); sent is false when it has none that takes commands. Nil: none.
+	SendCommand func(ctx context.Context, c *model.Command) (sent bool, err error)
 
 	DefaultDeviceLimit    int    // users.defaultDeviceLimit, for self-registered users
 	DefaultExpirationDays int    // users.defaultExpirationDays

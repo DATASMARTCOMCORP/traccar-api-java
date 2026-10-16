@@ -663,8 +663,9 @@ func (a *API) auditCommand(r *request, groupID, deviceID int64) {
 	}
 }
 
-// deliver is CommandsManager.sendCommand without live connections: the text channel needs
-// SMS, push senders aren't ported yet, and everything else is queued unless "noQueue".
+// deliver is CommandsManager.sendCommand: the text channel needs SMS and push senders
+// aren't ported yet; a device on a live connection of this server gets the command
+// there, and anything else is queued unless "noQueue".
 func (a *API) deliver(r *request, c model.Command) (*model.QueuedCommand, error) {
 	device, err := store.Get[model.Device](r.Context(), a.st, c.DeviceID)
 	if err != nil {
@@ -678,6 +679,15 @@ func (a *API) deliver(r *request, c model.Command) (*model.QueuedCommand, error)
 	}
 	if _, ok := a.commandSender(&device); ok {
 		return nil, errStatus(http.StatusNotImplemented, "push command senders are not ported yet")
+	}
+	if a.opts.SendCommand != nil {
+		sent, err := a.opts.SendCommand(r.Context(), &c)
+		if err != nil {
+			return nil, err
+		}
+		if sent {
+			return nil, nil
+		}
 	}
 	if v, ok := c.Attributes.Get("noQueue"); ok && (v == true || v == "true") {
 		return nil, errors.New("Failed to send command")

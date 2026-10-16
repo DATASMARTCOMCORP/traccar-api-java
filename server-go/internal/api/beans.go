@@ -176,7 +176,7 @@ func calendarBean(c *model.Calendar) bean {
 func commandBean(c *model.Command) bean {
 	return bean{ignoreUnknown: true, props: props{
 		"id": longProp(&c.ID), "attributes": attributesProp(&c.Attributes), "deviceId": longProp(&c.DeviceID),
-		"type": plainString(&c.Type), "textChannel": boolProp(&c.TextChannel), "description": plainString(&c.Description),
+		"type": plainString(&c.Type), "textChannel": boolProp(&c.TextChannel), "description": stringProp(&c.Description),
 	}}
 }
 

@@ -240,3 +240,105 @@ func intHash(v *int64) int32 {
 func eqPtr[T comparable](a, b *T) bool {
 	return a == nil && b == nil || a != nil && b != nil && *a == *b
 }
+
+// NewCellTower is CellTower.from(mcc, mnc, lac, cid).
+func NewCellTower(mcc, mnc, lac int, cid int64) CellTower {
+	return CellTower{MobileCountryCode: ptr(int64(mcc)), MobileNetworkCode: ptr(int64(mnc)),
+		LocationAreaCode: ptr(int64(lac)), CellID: &cid}
+}
+
+// NewCellTowerRSSI is CellTower.from(mcc, mnc, lac, cid, rssi).
+func NewCellTowerRSSI(mcc, mnc, lac int, cid int64, rssi int) CellTower {
+	c := NewCellTower(mcc, mnc, lac, cid)
+	c.SetSignalStrength(rssi)
+	return c
+}
+
+// SetSignalStrength is CellTower.setSignalStrength: positive values are negated.
+func (c *CellTower) SetSignalStrength(rssi int) { c.SignalStrength = ptr(int64(negate(int32(rssi)))) }
+
+// SetOperator is CellTower.setOperator: the first three decimal digits are the MCC, the
+// rest the MNC. Like Java's, it fails on fewer than four digits.
+func (c *CellTower) SetOperator(operator int64) error {
+	s := strconv.FormatInt(operator, 10)
+	if len(s) < 3 {
+		return errNumberFormat
+	}
+	mcc, err := ParseInt(s[:3])
+	if err != nil {
+		return err
+	}
+	mnc, err := ParseInt(s[3:])
+	if err != nil {
+		return err
+	}
+	c.MobileCountryCode, c.MobileNetworkCode = ptr(int64(mcc)), ptr(int64(mnc))
+	return nil
+}
+
+// SetSignalStrength is WifiAccessPoint.setSignalStrength: positive values are negated.
+func (w *WifiAccessPoint) SetSignalStrength(rssi int) {
+	w.SignalStrength = ptr(int64(negate(int32(rssi))))
+}
+
+func negate(v int32) int32 {
+	if v > 0 {
+		return -v
+	}
+	return v
+}
+
+// NewWifiAccessPoint is WifiAccessPoint.from(macAddress, signalStrength).
+func NewWifiAccessPoint(mac string, rssi int) WifiAccessPoint {
+	w := WifiAccessPoint{MacAddress: &mac}
+	w.SetSignalStrength(rssi)
+	return w
+}
+
+// NewWifiAccessPointChannel is WifiAccessPoint.from(macAddress, signalStrength, channel).
+func NewWifiAccessPointChannel(mac string, rssi, channel int) WifiAccessPoint {
+	w := NewWifiAccessPoint(mac, rssi)
+	w.Channel = ptr(int64(channel))
+	return w
+}
+
+func ptr[T any](v T) *T { return &v }
+
+// AddCellTower is Network.addCellTower: the towers are a HashSet, so duplicates are
+// dropped and CellTowers follows Java's iteration order.
+func (n *Network) AddCellTower(c CellTower) {
+	set := NewCellTowerSet()
+	for _, t := range n.CellTowers {
+		set.Add(t)
+	}
+	set.Add(c)
+	n.CellTowers = set.Items()
+}
+
+// AddWifiAccessPoint is Network.addWifiAccessPoint (a HashSet, as AddCellTower).
+func (n *Network) AddWifiAccessPoint(w WifiAccessPoint) {
+	set := NewWifiAccessPointSet()
+	for _, t := range n.WifiAccessPoints {
+		set.Add(t)
+	}
+	set.Add(w)
+	n.WifiAccessPoints = set.Items()
+}
+
+// NetworkOf is new Network(cellTowers...).
+func NetworkOf(towers ...CellTower) *Network {
+	n := NewNetwork()
+	for _, c := range towers {
+		n.AddCellTower(c)
+	}
+	return n
+}
+
+// NetworkOfWifi is new Network(wifiAccessPoints...).
+func NetworkOfWifi(points ...WifiAccessPoint) *Network {
+	n := NewNetwork()
+	for _, w := range points {
+		n.AddWifiAccessPoint(w)
+	}
+	return n
+}
