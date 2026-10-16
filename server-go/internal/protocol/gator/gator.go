@@ -5,7 +5,6 @@ package gator
 import (
 	"fmt"
 	"regexp"
-	"time"
 
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/ingest"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/model"
@@ -130,7 +129,7 @@ func decode(m *ingest.Message, msg any) any {
 	hour := kit.ReadBCD(buf, 2)
 	minute := kit.ReadBCD(buf, 2)
 	second := kit.ReadBCD(buf, 2)
-	pos.SetTime(calendarDate(year, month, day, hour, minute, second))
+	pos.SetTime(kit.CalendarDate(year, month, day, hour, minute, second, 0))
 
 	pos.SetLatitude(kit.ReadBCDCoordinate(buf))
 	pos.SetLongitude(kit.ReadBCDCoordinate(buf))
@@ -170,48 +169,6 @@ func decode(m *ingest.Message, msg any) any {
 	}
 
 	return pos
-}
-
-// gregorianCutover is when java.util.GregorianCalendar switches from the Julian calendar.
-var gregorianCutover = time.Date(1582, 10, 15, 0, 0, 0, 0, time.UTC)
-
-// calendarDate is DateBuilder (a lenient GregorianCalendar in UTC) with these fields.
-// Invalid BCD digits can make years before 1582, which Java counts in the Julian
-// calendar; kit.DateBuilder is proleptic Gregorian.
-func calendarDate(year, month, day, hour, minute, second int) time.Time {
-	t := time.Date(year, time.Month(month), day, hour, minute, second, 0, time.UTC)
-	if !t.Before(gregorianCutover) {
-		return t
-	}
-	// Move the month overflow into the year, then count days from the Julian 1st.
-	y, m := year+floorDiv(month-1, 12), floorMod(month-1, 12)+1
-	first := time.Date(y, time.Month(m), 1, 0, 0, 0, 0, time.UTC)
-	shift := julianDayNumber(y, m, 1) - gregorianDayNumber(y, m, 1)
-	return first.AddDate(0, 0, shift).Add(t.Sub(first))
-}
-
-func floorDiv(a, b int) int {
-	q := a / b
-	if (a%b != 0) && ((a < 0) != (b < 0)) {
-		q--
-	}
-	return q
-}
-
-func floorMod(a, b int) int { return a - floorDiv(a, b)*b }
-
-func julianDayNumber(y, m, d int) int {
-	a := floorDiv(14-m, 12)
-	yy := y + 4800 - a
-	mm := m + 12*a - 3
-	return d + floorDiv(153*mm+2, 5) + 365*yy + floorDiv(yy, 4) - 32083
-}
-
-func gregorianDayNumber(y, m, d int) int {
-	a := floorDiv(14-m, 12)
-	yy := y + 4800 - a
-	mm := m + 12*a - 3
-	return d + floorDiv(153*mm+2, 5) + 365*yy + floorDiv(yy, 4) - floorDiv(yy, 100) + floorDiv(yy, 400) - 32045
 }
 
 // encodeID is GatorProtocolEncoder.encodeId: the unique id as a pseudo IP address.

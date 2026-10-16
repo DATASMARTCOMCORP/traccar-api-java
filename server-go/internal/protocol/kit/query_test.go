@@ -1,4 +1,4 @@
-package osmand
+package kit
 
 import (
 	"bufio"
@@ -33,13 +33,13 @@ func check(t *testing.T, path string) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		params, err := queryParams(string(input), fields[0] == "P")
+		params, err := QueryParams(string(input), fields[0] == "P")
 		got := "ERR"
 		if err == nil {
 			var b strings.Builder
 			for _, p := range params {
-				for _, v := range p.values {
-					b.WriteString(p.name + "\x01" + v + "\x02")
+				for _, v := range p.Values {
+					b.WriteString(p.Name + "\x01" + v + "\x02")
 				}
 			}
 			got = hex.EncodeToString([]byte(b.String()))

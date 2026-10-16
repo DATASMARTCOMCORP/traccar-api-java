@@ -13,7 +13,7 @@ func TestHTTPResponseFramer(t *testing.T) {
 		"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n" +
 		"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nshort"
 	in := kit.NewBuf([]byte(stream))
-	want := []HTTPResponse{{200, []byte("hello")}, {404, []byte("abcde")}, {204, []byte{}}}
+	want := []HTTPResponse{{Status: 200, Body: []byte("hello")}, {Status: 404, Body: []byte("abcde")}, {Status: 204, Body: []byte{}}}
 	for i, w := range want {
 		got, ok := f.Frame(nil, in).(*HTTPResponse)
 		if !ok || got.Status != w.Status || string(got.Body) != string(w.Body) {

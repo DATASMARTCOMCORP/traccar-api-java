@@ -51,20 +51,20 @@ func (d *Decoder) DecodeHTTP(ctx context.Context, m *ingest.Message, r *http.Req
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		return d.decodeJSON(ctx, m, body)
 	}
-	params, err := queryParams(kit.Latin1([]byte(r.RequestURI)), true) // the request line, one char per byte
+	params, err := kit.QueryParams(kit.Latin1([]byte(r.RequestURI)), true) // the request line, one char per byte
 	if err != nil {
 		return nil, nil, err
 	}
 	if len(params) == 0 {
 		// content().toString(US_ASCII): Netty decodes one char per byte
-		if params, err = queryParams(kit.Latin1(body), false); err != nil {
+		if params, err = kit.QueryParams(kit.Latin1(body), false); err != nil {
 			return nil, nil, err
 		}
 	}
 	return d.decodeQuery(ctx, m, params)
 }
 
-func (d *Decoder) decodeQuery(ctx context.Context, m *ingest.Message, params []param) (*ingest.HTTPResponse, []*model.Position, error) {
+func (d *Decoder) decodeQuery(ctx context.Context, m *ingest.Message, params []kit.QueryParam) (*ingest.HTTPResponse, []*model.Position, error) {
 	pos := m.NewPosition()
 	pos.Valid = true
 	towers := model.NewCellTowerSet()
@@ -72,8 +72,8 @@ func (d *Decoder) decodeQuery(ctx context.Context, m *ingest.Message, params []p
 	var latitude, longitude *float64
 
 	for _, p := range params {
-		for _, value := range p.values {
-			switch p.name {
+		for _, value := range p.Values {
+			switch p.Name {
 			case "id", "deviceid":
 				ds, err := m.DeviceSession(value)
 				if err != nil {
@@ -159,7 +159,7 @@ func (d *Decoder) decodeQuery(ctx context.Context, m *ingest.Message, params []p
 					return nil, nil, err
 				}
 				key := model.KeyHdop
-				if p.name == "batt" {
+				if p.Name == "batt" {
 					key = model.KeyBatteryLevel
 				}
 				pos.Attributes.Set(key, v)
@@ -169,15 +169,15 @@ func (d *Decoder) decodeQuery(ctx context.Context, m *ingest.Message, params []p
 				pos.Attributes.Set(model.KeyCharge, model.ParseBoolean(value))
 			default:
 				if v, err := model.ParseDouble(value); err == nil {
-					pos.Attributes.Set(p.name, v)
+					pos.Attributes.Set(p.Name, v)
 				} else {
 					switch value {
 					case "true":
-						pos.Attributes.Set(p.name, true)
+						pos.Attributes.Set(p.Name, true)
 					case "false":
-						pos.Attributes.Set(p.name, false)
+						pos.Attributes.Set(p.Name, false)
 					default:
-						setString(pos, p.name, value)
+						setString(pos, p.Name, value)
 					}
 				}
 			}

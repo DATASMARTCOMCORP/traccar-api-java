@@ -324,3 +324,17 @@ func (m *Message) DevicePassword(deviceID int64, protocol, def string) string {
 	}
 	return def
 }
+
+// CellTowerFromLacCid is CellTower.fromLacCid(config, lac, cid): the country and network
+// codes come from geolocation.mcc and geolocation.mnc (0 when unset).
+func (m *Message) CellTowerFromLacCid(lac int, cid int64) model.CellTower {
+	mcc, err := m.Config().Int("geolocation.mcc", 0)
+	if err != nil {
+		panic(err)
+	}
+	mnc, err := m.Config().Int("geolocation.mnc", 0)
+	if err != nil {
+		panic(err)
+	}
+	return model.NewCellTower(mcc, mnc, lac, cid)
+}

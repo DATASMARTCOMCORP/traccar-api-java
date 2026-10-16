@@ -14,6 +14,7 @@ import (
 
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/config"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/model"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/kit"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/store"
 )
 
@@ -194,6 +195,30 @@ func hexDump(b []byte) string {
 type HTTPResponse struct {
 	Status int
 	Body   []byte
+	Header http.Header // besides Content-Length (Content-Type and the like)
+}
+
+// holdConnection is a request Netty never answers: net/http would answer 200, so the
+// connection is taken over and kept open, unanswered, until the client closes it.
+func holdConnection(w http.ResponseWriter) {
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		return
+	}
+	c, _, err := hj.Hijack()
+	if err != nil {
+		return
+	}
+	go func() {
+		defer c.Close()
+		buf := make([]byte, 4096)
+		_ = c.SetReadDeadline(time.Now().Add(30 * time.Minute))
+		for {
+			if _, err := c.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
 }
 
 // HTTPDecoder decodes one request of an HTTP protocol. It returns the response, the
@@ -210,7 +235,7 @@ type connKey struct{}
 
 // serveHTTP listens for an HTTP protocol on <protocol>.address (a comma-separated list,
 // or all interfaces) and the given port, until the listener is closed.
-func (p *Processor) serveHTTP(l *Listener, proto Protocol, port int, dec HTTPDecoder) error {
+func (p *Processor) serveHTTP(l *Listener, proto Protocol, port int, dec HTTPDecoder, maxLength int) error {
 	protocol := proto.Name
 	timeout, err := p.protocolTimeout(protocol)
 	if err != nil {
@@ -218,7 +243,7 @@ func (p *Processor) serveHTTP(l *Listener, proto Protocol, port int, dec HTTPDec
 	}
 	conns := sync.Map{} // net.Conn → *Conn
 	srv := &http.Server{
-		Handler:     p.httpHandler(protocol, dec),
+		Handler:     p.httpHandler(protocol, dec, maxLength),
 		IdleTimeout: timeout,
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			conn := &Conn{p: p, protocol: protocol, http: true, local: c.LocalAddr().String(),
@@ -283,20 +308,23 @@ func listenAddresses(cfg *config.Config, protocol string, port int) []string {
 	return out
 }
 
-func (p *Processor) httpHandler(protocol string, dec HTTPDecoder) http.Handler {
+func (p *Processor) httpHandler(protocol string, dec HTTPDecoder, maxLength int) http.Handler {
+	if maxLength <= 0 {
+		maxLength = maxHTTPLength
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn := r.Context().Value(connKey{}).(*Conn)
-		body, err := io.ReadAll(io.LimitReader(r.Body, maxHTTPLength+1))
+		body, err := io.ReadAll(io.LimitReader(r.Body, int64(maxLength)+1))
 		if err != nil {
 			panic(http.ErrAbortHandler)
 		}
-		if len(body) > maxHTTPLength {
+		if len(body) > maxLength {
 			writeNettyResponse(w, &HTTPResponse{Status: http.StatusRequestEntityTooLarge})
 			return
 		}
 		ctx := p.ctx
 		m := NewMessage(ctx, conn, r.RemoteAddr, time.Now())
-		resp, positions, err := dec.DecodeHTTP(ctx, m, r, body)
+		resp, positions, err := decodeHTTPSafely(dec, ctx, m, r, body)
 		if err != nil {
 			// MainEventHandler.exceptionCaught: logged, and the connection is closed.
 			p.log.Warn("["+conn.protocol+" "+r.RemoteAddr+"] error", "error", err)
@@ -324,15 +352,26 @@ func (p *Processor) httpHandler(protocol string, dec HTTPDecoder) http.Handler {
 	})
 }
 
+// decodeHTTPSafely runs an HTTP decoder, turning a panic (a Java exception) into an error.
+func decodeHTTPSafely(dec HTTPDecoder, ctx context.Context, m *Message, r *http.Request, body []byte) (resp *HTTPResponse, positions []*model.Position, err error) {
+	defer kit.Recover(&err)
+	return dec.DecodeHTTP(ctx, m, r, body)
+}
+
 // writeNettyResponse writes a response like Netty's DefaultFullHttpResponse with a
-// content-length header and nothing else.
+// content-length header and the response's own headers. Without a response (the Java
+// decoder sent none) the client gets nothing: the connection is held until it closes.
 func writeNettyResponse(w http.ResponseWriter, resp *HTTPResponse) {
 	if resp == nil {
+		holdConnection(w)
 		return
 	}
 	h := w.Header()
 	h["Date"] = nil
 	h["Content-Type"] = nil
+	for k, v := range resp.Header {
+		h[k] = v
+	}
 	h.Set("Content-Length", strconv.Itoa(len(resp.Body)))
 	w.WriteHeader(resp.Status)
 	_, _ = w.Write(resp.Body)

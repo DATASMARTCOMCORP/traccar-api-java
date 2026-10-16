@@ -75,6 +75,28 @@ Register the protocol in `internal/protocol/all/all.go`.
 | `getCommandsManager().readQueuedCommands` | `m.QueuedCommands(deviceID, limit)` |
 | an exception | `kit.Throw(...)`, or just let a Go index panic happen where Java's array access throws |
 
+More shared pieces (use them rather than writing local copies):
+
+| Java | Go |
+| --- | --- |
+| Jakarta JSON (`Json.createReader`, `JsonObject.getString/getInt/getJsonObject/...`) | `kit.ParseJSON`, `kit.ParseJSONObject`, `*kit.JSONObject` (`String`, `Int`, `Object`, `Array`, `Has`, `IsNull`, `...Or` for defaults), `kit.JSONNumber` (`Int`, `Long`, `Double`, `Integral`) |
+| `QueryStringDecoder` | `kit.QueryParams`, `kit.DecodeComponent` |
+| `CellTower.fromLacCid/fromCidLac(config, ...)` | `m.CellTowerFromLacCid(lac, cid)` |
+| `TimeZone.getRawOffset()` | `javatime.RawOffset(loc, m.Now)` (seconds) |
+| `AttributeUtil.getDevicePassword` / `initDevicePassword` | `m.DevicePassword(deviceID, protocol, default)` |
+| a `Float` put straight into the attribute map (`getAttributes().put`) | `model.Float(v)` (written with `Float.toString`) |
+| `BaseProtocolPoller` | `Pipeline.Poll` |
+| `TrackerClient` (the server connects out) | `Protocol.Clients` |
+| `channelInactive` in a decoder | `Pipeline.OnClose` |
+| MQTT (`MqttDecoder`, `BaseMqttProtocolDecoder`) | `ingest.NewMQTT`, `ingest.MQTTDecoder` (see `iotm`) |
+| `HttpObjectAggregator(Integer.MAX_VALUE)` | `Server.HTTPMaxLength` |
+| response headers (`Content-Type`) | `HTTPResponse.Header` |
+
+`kit.DateBuilder` counts dates before 1582-10-15 in the Julian calendar, as
+`GregorianCalendar` does (`kit.CalendarDate` for the fields alone). Patterns may nest
+character classes (`number("([x|]+)")`): they are unions, as in Java. A frame decoder on a
+UDP server isn't supported by `ingest` (only Mavlink2 has one, framed in its package).
+
 Return what Java returns: `nil` for null, a `*model.Position`, or `[]*model.Position`. An empty
 list is not null: `positions := []*model.Position{}` where Java makes `new LinkedList<>()`
 (only null makes a `database.saveEmpty` position).
@@ -104,5 +126,8 @@ hold everything Java produced (every field, attribute types, the network, errors
 passes only when the Go output is identical. The environment is Traccar's `BaseTest`: device
 1 once a decoder passes unique ids, an empty config, the protocol name `unknown` (config keys
 read with that prefix), and encoders see device unique id `123456789012345`.
+
+Java tests that call a decoder directly inside `assertEquals` (common in frame decoder
+tests) are not recorded: port their assertions to a Go test in the package.
 
 Recording more Java calls: see `oracle/README.md`.

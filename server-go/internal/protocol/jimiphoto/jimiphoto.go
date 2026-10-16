@@ -24,7 +24,7 @@ import (
 
 // Protocol is the protocol's definition: one HTTP server.
 func Protocol() ingest.Protocol {
-	return ingest.Protocol{Name: "jimiphoto", Servers: []ingest.Server{{HTTP: Decoder{}}}}
+	return ingest.Protocol{Name: "jimiphoto", Servers: []ingest.Server{{HTTP: Decoder{}, HTTPMaxLength: math.MaxInt32}}}
 }
 
 // Decoder is JimiPhotoProtocolDecoder.
@@ -115,7 +115,7 @@ func jsonResponse(status int, message string, data *string) *ingest.HTTPResponse
 		jsonString(&b, *data)
 	}
 	b.WriteString("}")
-	return &ingest.HTTPResponse{Status: status, Body: []byte(b.String())}
+	return &ingest.HTTPResponse{Status: status, Body: []byte(b.String()), Header: http.Header{"Content-Type": {"application/json"}}}
 }
 
 // getString is JsonObject.getString(key, default): the value when it is a JSON string.

@@ -221,7 +221,7 @@ func (d *Decoder) decodeXML(m *ingest.Message, body []byte) (*ingest.HTTPRespons
 	if !ok {
 		kit.Throw("NullPointerException: messageID")
 	}
-	resp := &ingest.HTTPResponse{Status: http.StatusOK, Body: xmlResponse(m, messageID)}
+	resp := &ingest.HTTPResponse{Status: http.StatusOK, Body: xmlResponse(m, messageID), Header: http.Header{"Content-Type": {"text/xml"}}}
 
 	if len(positions) == 0 {
 		return resp, nil

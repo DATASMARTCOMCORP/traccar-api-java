@@ -1,25 +1,24 @@
-package osmand
+package kit
 
 import (
 	"fmt"
-	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/kit"
 	"strings"
 )
 
-// param is a query parameter with all its values, in the order of first appearance
+// QueryParam is a query parameter with all its values, in the order of first appearance
 // (Netty's QueryStringDecoder.parameters(), a LinkedHashMap of lists).
-type param struct {
-	name   string
-	values []string
+type QueryParam struct {
+	Name   string
+	Values []string
 }
 
-// maxParams is QueryStringDecoder.DEFAULT_MAX_PARAMS.
-const maxParams = 1024
+// maxQueryParams is QueryStringDecoder.DEFAULT_MAX_PARAMS.
+const maxQueryParams = 1024
 
-// queryParams is new QueryStringDecoder(s, hasPath).parameters(): '&' and ';' separate
+// QueryParams is new QueryStringDecoder(s, hasPath).parameters(): '&' and ';' separate
 // parameters, '#' ends them, '+' is a space, %XX escapes are UTF-8 (an invalid escape
 // throws), and a name without '=' has an empty value.
-func queryParams(s string, hasPath bool) ([]param, error) {
+func QueryParams(s string, hasPath bool) ([]QueryParam, error) {
 	from := 0
 	if hasPath {
 		from = strings.IndexAny(s, "?#")
@@ -33,9 +32,9 @@ func queryParams(s string, hasPath bool) ([]param, error) {
 	if s[from] == '?' {
 		from++
 	}
-	var params []param
+	var params []QueryParam
 	index := map[string]int{}
-	limit := maxParams
+	limit := maxQueryParams
 	add := func(nameStart, valueStart, valueEnd int) (bool, error) {
 		if nameStart >= valueEnd {
 			return false, nil
@@ -43,19 +42,19 @@ func queryParams(s string, hasPath bool) ([]param, error) {
 		if valueStart <= nameStart {
 			valueStart = valueEnd + 1
 		}
-		name, err := decodeComponent(s, nameStart, valueStart-1)
+		name, err := DecodeComponent(s, nameStart, valueStart-1)
 		if err != nil {
 			return false, err
 		}
-		value, err := decodeComponent(s, valueStart, valueEnd)
+		value, err := DecodeComponent(s, valueStart, valueEnd)
 		if err != nil {
 			return false, err
 		}
 		if i, ok := index[name]; ok {
-			params[i].values = append(params[i].values, value)
+			params[i].Values = append(params[i].Values, value)
 		} else {
 			index[name] = len(params)
-			params = append(params, param{name: name, values: []string{value}})
+			params = append(params, QueryParam{Name: name, Values: []string{value}})
 		}
 		return true, nil
 	}
@@ -91,8 +90,8 @@ loop:
 	return params, nil
 }
 
-// decodeComponent is QueryStringDecoder.decodeComponent with '+' as a space.
-func decodeComponent(s string, from, to int) (string, error) {
+// DecodeComponent is QueryStringDecoder.decodeComponent with '+' as a space.
+func DecodeComponent(s string, from, to int) (string, error) {
 	if to-from <= 0 {
 		return "", nil
 	}
@@ -124,7 +123,7 @@ func decodeComponent(s string, from, to int) (string, error) {
 			i += 3
 		}
 		i--
-		b.WriteString(kit.UTF8(buf))
+		b.WriteString(UTF8(buf))
 	}
 	return b.String(), nil
 }

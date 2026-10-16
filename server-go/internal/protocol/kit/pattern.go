@@ -108,10 +108,10 @@ var javaClasses = map[string]string{
 }
 
 // translateRegex rewrites Java-only syntax into RE2: POSIX classes, \s (Java's includes
-// \x0B), \S, \h, and octal escapes (\0n).
+// \x0B), \S, \h, octal escapes (\0n) and classes nested in classes (unions).
 func translateRegex(java string) string {
 	var b strings.Builder
-	inClass := false
+	inClass, nested := false, 0
 	for i := 0; i < len(java); i++ {
 		c := java[i]
 		if c == '\\' && i+1 < len(java) {
@@ -151,6 +151,18 @@ func translateRegex(java string) string {
 			continue
 		}
 		switch {
+		case c == '[' && inClass:
+			// A class inside a class is a union in Java ([[0-9a-f]|] is a hex digit or
+			// '|', as PatternBuilder writes 'x' inside brackets); RE2 has no nesting, so
+			// its contents join the outer class.
+			if i+1 < len(java) && java[i+1] == '^' {
+				Throw("regex: a negated class inside a class is not supported: %s", java)
+			}
+			nested++
+			continue
+		case c == ']' && nested > 0:
+			nested--
+			continue
 		case c == '[' && !inClass:
 			inClass = true
 			b.WriteByte(c)

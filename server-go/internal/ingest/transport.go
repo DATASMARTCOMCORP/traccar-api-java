@@ -45,6 +45,8 @@ type Pipeline struct {
 	// Poll is a BaseProtocolPoller: a request when the connection opens, then at every
 	// interval while it stays open.
 	Poll *Poller
+	// OnClose runs when the connection closes (a decoder's channelInactive).
+	OnClose func()
 }
 
 // Poller is BaseProtocolPoller: Request runs on the connection's event loop.
@@ -65,6 +67,8 @@ type Server struct {
 	Datagram    bool
 	NewPipeline func() Pipeline // TCP and UDP
 	HTTP        HTTPDecoder     // an HTTP server (BaseHttpProtocolDecoder)
+	// HTTPMaxLength is the HttpObjectAggregator limit: 0 is MAX_HTTP_LENGTH (64 KiB).
+	HTTPMaxLength int
 }
 
 // Protocol is a device protocol: its listeners and the data commands its encoder takes
@@ -144,7 +148,7 @@ func (p *Processor) ServeProtocol(proto Protocol, port int) (*Listener, error) {
 		var err error
 		switch {
 		case s.HTTP != nil:
-			err = p.serveHTTP(l, proto, port, s.HTTP)
+			err = p.serveHTTP(l, proto, port, s.HTTP, s.HTTPMaxLength)
 		case s.Datagram:
 			err = p.serveUDP(l, proto, s, port)
 		default:
@@ -208,6 +212,9 @@ func (p *Processor) handleTCP(l *Listener, proto Protocol, pl Pipeline, c net.Co
 	}
 	conn.pipeline = &pl
 	defer p.channelInactive(conn, remote)
+	if pl.OnClose != nil {
+		defer pl.OnClose()
+	}
 	if pl.Poll != nil && pl.Poll.Interval > 0 {
 		stop := make(chan struct{})
 		defer close(stop)

@@ -17,7 +17,7 @@ import (
 
 // Protocol is the protocol's definition: one HTTP server.
 func Protocol() ingest.Protocol {
-	return ingest.Protocol{Name: "flespi", Servers: []ingest.Server{{HTTP: Decoder{}}}}
+	return ingest.Protocol{Name: "flespi", Servers: []ingest.Server{{HTTP: Decoder{}, HTTPMaxLength: math.MaxInt32}}}
 }
 
 // Decoder is FlespiProtocolDecoder.

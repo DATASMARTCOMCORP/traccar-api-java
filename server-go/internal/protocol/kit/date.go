@@ -94,7 +94,7 @@ func (b *DateBuilder) AddMillis(n int64) *DateBuilder {
 
 // Date is getDate().
 func (b *DateBuilder) Date() time.Time {
-	wall := time.Date(b.year, time.Month(b.month+1), b.day, b.hour, b.minute, b.second, 0, time.UTC).
+	wall := CalendarDate(b.year, b.month+1, b.day, b.hour, b.minute, b.second, 0).
 		Add(time.Duration(b.ms) * time.Millisecond)
 	if b.loc == time.UTC {
 		return wall

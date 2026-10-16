@@ -52,3 +52,19 @@ func FromWall(w time.Time, loc *time.Location) time.Time {
 	}
 	return best.t
 }
+
+// RawOffset is TimeZone.getRawOffset() at t, in seconds: the zone's standard (non-DST)
+// offset in effect then.
+func RawOffset(loc *time.Location, t time.Time) int {
+	_, offset := t.In(loc).Zone()
+	if !t.In(loc).IsDST() {
+		return offset
+	}
+	for _, probe := range []time.Duration{-24 * time.Hour * 183, 24 * time.Hour * 183, -24 * time.Hour * 92, 24 * time.Hour * 92} {
+		if p := t.Add(probe).In(loc); !p.IsDST() {
+			_, offset = p.Zone()
+			return offset
+		}
+	}
+	return offset
+}

@@ -224,7 +224,7 @@ func (b *Buf) GetUnsignedInt(i int) int64   { return int64(binary.BigEndian.Uint
 func (b *Buf) GetUnsignedIntLE(i int) int64 { return int64(binary.LittleEndian.Uint32(b.at(i, 4))) }
 func (b *Buf) GetLong(i int) int64          { return int64(binary.BigEndian.Uint64(b.at(i, 8))) }
 func (b *Buf) GetBytes(i, n int) []byte     { return append([]byte(nil), b.at(i, n)...) }
-func (b *Buf) GetString(i, n int) string    { return ASCII(b.at(i, n)) }
+func (b *Buf) GetString(i, n int) string    { return Latin1(b.at(i, n)) } // getCharSequence(US_ASCII): one char per byte, as Netty decodes
 func (b *Buf) GetLatin1(i, n int) string    { return Latin1(b.at(i, n)) }
 
 // Slice is slice(index, length): a buffer over those bytes.
@@ -266,8 +266,13 @@ func (b *Buf) IndexOfBytes(needle []byte) int {
 
 // IndexOfIn is BufferUtil.indexOf(needle, buf, start, end).
 func (b *Buf) IndexOfIn(needle string, start, end int) int {
-	if start < 0 || end > len(b.b) || start > end {
-		Throw("indexOf: bad range %d..%d", start, end)
+	// Java moves the reader index to start (at most the writer index), then the writer
+	// index to end (from start up to the capacity).
+	if start < 0 || start > b.w {
+		Throw("IndexOutOfBoundsException: readerIndex: %d (expected: 0 <= readerIndex <= writerIndex(%d))", start, b.w)
+	}
+	if end < start || end > len(b.b) {
+		Throw("IndexOutOfBoundsException: writerIndex: %d (expected: readerIndex(%d) <= writerIndex <= capacity(%d))", end, start, len(b.b))
 	}
 	i := strings.Index(string(b.b[start:end]), needle)
 	if i < 0 {
