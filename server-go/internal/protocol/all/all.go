@@ -249,6 +249,9 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tramigo"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/transync"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/trv"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tt8850"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/ttnhttp"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tytan"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tzone"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/ulbotech"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/upro"
@@ -524,6 +527,9 @@ var protocols = map[string]Constructor{
 	"tramigo":        fixed(tramigo.Protocol),
 	"transync":       fixed(transync.Protocol),
 	"trv":            fixed(trv.Protocol),
+	"tt8850":         fixed(tt8850.Protocol),
+	"ttnhttp":        fixed(ttnhttp.Protocol),
+	"tytan":          fixed(tytan.Protocol),
 	"tzone":          withConfig(tzone.Protocol),
 	"ulbotech":       fixed(ulbotech.Protocol),
 	"upro":           fixed(upro.Protocol),
