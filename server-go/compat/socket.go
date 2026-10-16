@@ -45,6 +45,11 @@ func (c *wsClient) readLoop() {
 		if err != nil {
 			return
 		}
+		if string(data) == "{}" {
+			// A keepalive: both servers send one every 55 s from their own start, so it
+			// lands in one side's read and not the other's. The hub's tests cover it.
+			continue
+		}
 		c.mu.Lock()
 		c.msgs = append(c.msgs, data)
 		c.last = time.Now()
