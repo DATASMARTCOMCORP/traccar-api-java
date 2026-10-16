@@ -519,7 +519,7 @@ func comparePosition(g *model.Position, w *Position, r Record) []string {
 			d = append(d, fmt.Sprintf("%s: got %v, Java null", name, got.Time.UTC()))
 		case want != nil && got.IsZero():
 			d = append(d, fmt.Sprintf("%s: got null, Java %v", name, time.UnixMilli(*want).UTC()))
-		case want != nil && got.Time.UnixMilli() == clock(r) && r.Before != 0 && r.Before <= *want && *want <= r.Now:
+		case want != nil && clockDerived(got.Time.UnixMilli(), *want, r):
 		case want != nil && got.Time.UnixMilli() != *want:
 			d = append(d, fmt.Sprintf("%s: got %v, Java %v", name, got.Time.UTC(), time.UnixMilli(*want).UTC()))
 		}
@@ -666,4 +666,23 @@ func HTTPDecoder(d ingest.HTTPDecoder) ingest.Decoder {
 		}
 		return positions
 	})
+}
+
+// clockDerived reports whether Java's time matches Go's for some clock reading t between
+// the record's before and now (Go's message clock is before): either the time is the
+// clock plus a fixed offset (new Date(), or a date built from it), or it keeps the
+// clock's milliseconds (DateBuilder(new Date()) with the fields replaced).
+func clockDerived(got, want int64, r Record) bool {
+	if r.Before == 0 {
+		return false
+	}
+	for t := r.Before; t <= r.Now; t++ {
+		if got-r.Before == want-t {
+			return true
+		}
+		if got-r.Before%1000+t%1000 == want {
+			return true
+		}
+	}
+	return false
 }
