@@ -30,6 +30,10 @@ type cachedDevice struct {
 	// status is the cached Device's status: the column as read when the device was
 	// loaded (blank-padded), then what ConnectionManager.updateDevice last set.
 	status string
+	// positionID is the cached Device's positionId: as read when the device was loaded or
+	// reloaded by an API update. PostProcessHandler writes the column through a new
+	// Device, so the cached one keeps this value, and the WebSocket shows it.
+	positionID int64
 }
 
 // addDevice is CacheManager.addDevice: the first reference loads the device's positions.
@@ -38,11 +42,11 @@ func (c *positionCache) addDevice(ctx context.Context, deviceID int64, ref any) 
 	defer c.mu.Unlock()
 	d := c.devices[deviceID]
 	if d == nil || len(d.refs) == 0 {
-		positions, status, err := c.load(ctx, deviceID)
+		positions, device, err := c.load(ctx, deviceID)
 		if err != nil {
 			return err
 		}
-		d = &cachedDevice{refs: map[any]struct{}{}, positions: positions, status: status}
+		d = &cachedDevice{refs: map[any]struct{}{}, positions: positions, status: columnStatus(device), positionID: device.PositionID}
 		c.devices[deviceID] = d
 	}
 	d.refs[ref] = struct{}{}
@@ -66,17 +70,56 @@ func (c *positionCache) removeDevice(deviceID int64, ref any) {
 // load reads what CacheManager.addDevice reads: the device's latest position and, with
 // the new trip logic, the positions from minDuration before it (plus the one before
 // those), in fix time order.
-func (c *positionCache) load(ctx context.Context, deviceID int64) ([]*model.Position, string, error) {
+func (c *positionCache) load(ctx context.Context, deviceID int64) ([]*model.Position, model.Device, error) {
 	dc, err := c.p.loadContext(ctx, deviceID)
 	if err != nil {
-		return nil, "", err
-	}
-	status := model.StatusOffline
-	if dc.device.Status != nil {
-		status = *dc.device.Status
+		return nil, model.Device{}, err
 	}
 	positions, err := c.loadPositions(ctx, dc)
-	return positions, status, err
+	return positions, dc.device, err
+}
+
+// columnStatus is the status column as Java reads it.
+func columnStatus(d model.Device) string {
+	if d.Status != nil {
+		return *d.Status
+	}
+	return model.StatusOffline
+}
+
+// reload is CacheManager.invalidateObject(Device, UPDATE) for a cached device: the device
+// object is read again (its positions stay).
+func (c *positionCache) reload(ctx context.Context, deviceID int64) error {
+	c.mu.Lock()
+	cached := c.devices[deviceID] != nil
+	c.mu.Unlock()
+	if !cached {
+		return nil
+	}
+	d, err := store.Get[model.Device](ctx, c.p.st, deviceID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if cd := c.devices[deviceID]; cd != nil {
+		cd.status = columnStatus(d)
+		cd.positionID = d.PositionID
+	}
+	return nil
+}
+
+// positionID returns the cached device's positionId, if the device is cached.
+func (c *positionCache) positionID(deviceID int64) (int64, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if d := c.devices[deviceID]; d != nil {
+		return d.positionID, true
+	}
+	return 0, false
 }
 
 func (c *positionCache) loadPositions(ctx context.Context, dc *deviceContext) ([]*model.Position, error) {

@@ -20,6 +20,7 @@ import (
 
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/auth"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/config"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/live"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/model"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/store"
 )
@@ -50,11 +51,27 @@ type Options struct {
 	// sendCommand); sent is false when it has none that takes commands. Nil: none.
 	SendCommand func(ctx context.Context, c *model.Command) (sent bool, err error)
 
+	// Live is the hub of /api/socket; nil disables the socket.
+	Live *live.Hub
+	// Ingest is the device side when it runs in this process: the API updates its cache
+	// as Java's resources update CacheManager. Nil when it runs elsewhere.
+	Ingest Ingest
+	// SocketTimeout is web.timeout: a socket without traffic for this long is closed.
+	SocketTimeout time.Duration
+
 	DefaultDeviceLimit    int    // users.defaultDeviceLimit, for self-registered users
 	DefaultExpirationDays int    // users.defaultExpirationDays
 	MediaPath             string // media.path
 	ShareCommands         bool   // web.shareDevice.commands
 	ShareReports          bool   // web.shareDevice.reports
+}
+
+// Ingest is what the API changes in the device side's cache.
+type Ingest interface {
+	// DeviceChanged is CacheManager.invalidateObject(Device, UPDATE).
+	DeviceChanged(ctx context.Context, deviceID int64)
+	// PositionStored takes a new latest position (DeviceResource.updateAccumulators).
+	PositionStored(ctx context.Context, p *model.Position) error
 }
 
 // OptionsFromConfig reads the web and feature keys with Java's defaults.
@@ -79,11 +96,16 @@ func OptionsFromConfig(c *config.Config) (Options, error) {
 	if err != nil {
 		return Options{}, err
 	}
+	socketTimeout, err := c.Int64("web.timeout", 300000)
+	if err != nil {
+		return Options{}, err
+	}
 	var notificators []string
 	if v, ok := c.Lookup("notificator.types"); ok {
 		notificators = strings.Split(v, ",")
 	}
 	return Options{
+		SocketTimeout:         time.Duration(socketTimeout) * time.Millisecond,
 		DefaultDeviceLimit:    deviceLimit,
 		DefaultExpirationDays: expirationDays,
 		MediaPath:             c.String("media.path", "./media"),

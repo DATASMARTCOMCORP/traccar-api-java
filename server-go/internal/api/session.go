@@ -23,6 +23,8 @@ func (a *API) routes() {
 	a.handle("GET /api/session/openid/auth", public, openIDDisabled)
 	a.handle("GET /api/session/openid/callback", public, openIDDisabled)
 
+	a.mux.HandleFunc("/api/socket", a.serveSocket)
+
 	a.readRoutes()
 	a.writeRoutes()
 

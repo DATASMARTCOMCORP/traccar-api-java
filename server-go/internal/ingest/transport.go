@@ -230,7 +230,9 @@ func (p *Processor) handleTCP(l *Listener, proto Protocol, pl Pipeline, c net.Co
 		n, err := c.Read(chunk)
 		if n > 0 {
 			in.WriteBytes(chunk[:n])
-			if !p.consume(conn, pl, remote, in) {
+			ok := p.consume(conn, pl, remote, in)
+			p.logRead(conn, remote, chunk[:n])
+			if !ok {
 				return
 			}
 			// Drop consumed bytes (frames were copied out).
@@ -336,8 +338,9 @@ func (p *Processor) serveUDP(l *Listener, proto Protocol, s Server, port int) er
 				if err != nil {
 					return
 				}
-				msg := kit.NewBuf(bytes.Clone(buf[:n]))
-				p.handleMessage(conn, pl, from.String(), msg)
+				data := bytes.Clone(buf[:n])
+				p.handleMessage(conn, pl, from.String(), kit.NewBuf(data))
+				p.logRead(conn, from.String(), data)
 			}
 		}()
 	}

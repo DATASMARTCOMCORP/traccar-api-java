@@ -25,6 +25,7 @@ func suites() map[string]suite {
 		"buffered":  bufferedSuite(),
 		"status":    statusSuite(),
 		"protocols": protocolsSuite(),
+		"live":      liveSuite(),
 	}
 }
 

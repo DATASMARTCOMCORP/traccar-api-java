@@ -328,5 +328,9 @@ func (p *Processor) postProcess(ctx context.Context, dc *deviceContext, pos *mod
 		p.log.Warn("Failed to update device", "deviceId", pos.DeviceID, "error", err)
 		return nil
 	}
-	return p.cache.update(ctx, dc, pos)
+	if err := p.cache.update(ctx, dc, pos); err != nil {
+		return err
+	}
+	p.live.UpdatePosition(pos)
+	return nil
 }

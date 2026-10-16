@@ -27,6 +27,7 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/auth"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/config"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/ingest"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/live"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/all"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/store"
 )
@@ -81,6 +82,11 @@ func run(ctx context.Context, args []string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// The WebSocket hub: devices, positions and logs from the device side, pushed to
+	// /api/socket (Java's ConnectionManager listeners).
+	hub := live.NewHub(st, slog.Default())
+	hub.ShowUnknownDevices = cfg.Bool("web.showUnknownDevices", false)
+	proc.SetLive(hub)
 	listeners, err := startProtocols(cfg, proc, st.Location())
 	if err != nil {
 		return err
@@ -93,12 +99,15 @@ func run(ctx context.Context, args []string, stderr io.Writer) error {
 	procCtx, stopProc := context.WithCancel(context.Background())
 	defer stopProc()
 	go proc.Run(procCtx)
+	go hub.Run(procCtx)
 
 	apiOpts, err := api.OptionsFromConfig(cfg)
 	if err != nil {
 		return err
 	}
 	apiOpts.SendCommand = proc.SendCommand
+	apiOpts.Live = hub
+	apiOpts.Ingest = proc
 	port, err := cfg.Int(config.WebPort, config.DefaultWebPort)
 	if err != nil {
 		return err

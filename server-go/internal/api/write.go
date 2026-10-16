@@ -94,6 +94,9 @@ func registerWrites[T interface {
 			if err := a.st.AddLink(r.Context(), store.KindUser, r.user.ID, w.kind, id); err != nil {
 				return err
 			}
+			if w.kind == store.KindDevice {
+				a.opts.Live.LinkDevice(r.user.ID, id) // connectionManager.invalidatePermission
+			}
 			a.auditLink(r, "link", store.KindUser, r.user.ID, w.kind, id)
 		}
 		return writeJSON(rw, http.StatusOK, v)
@@ -119,6 +122,9 @@ func registerWrites[T interface {
 		}
 		if err := store.Update(r.Context(), a.st, &v); err != nil {
 			return err
+		}
+		if w.kind == store.KindDevice && a.opts.Ingest != nil {
+			a.opts.Ingest.DeviceChanged(r.Context(), id) // cacheManager.invalidateObject
 		}
 		a.audit(r.Context(), r.Request, "edit", r.user.ID, string(w.kind), id)
 		return writeJSON(rw, http.StatusOK, v)

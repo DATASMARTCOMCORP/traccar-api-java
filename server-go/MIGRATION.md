@@ -570,3 +570,59 @@ Findings:
 Next: Step 8. Before cutover, decide whether to extend the live `protocols` suite to the
 protocols the fleet uses (from production's `devices` table, read-only), beyond the four above.
 
+### Step 8 (live updates), 2026-10-16
+
+The event detectors were ported in Step 6. Step 8 is the WebSocket, `/api/socket`
+(`AsyncSocket`, and `ConnectionManager`'s update listeners).
+
+**Gate passed:** the `live` harness suite (3 scenarios, 60 steps) opens sockets on both
+servers and keeps them open across device traffic and API calls. Each read compares the
+messages received since the previous read. Java vs Java and Java vs Go both pass, and every
+other suite still passes against Go.
+
+The parts:
+- **`internal/live`** is the hub: sockets by user, and the devices each user sees. It sends
+  `{}` every 55 s (`TaskWebSocketKeepalive`).
+- **`api/socket.go`** does the handshake (a `token` parameter, or the session cookie when its
+  origin is valid). On open it sends the user's latest positions. It reads `{"logs": ...}`
+  with Jackson's `asBoolean`, and closes a socket after `web.timeout` (300 s) without traffic.
+- **Ingest feeds the hub:**
+  - device status changes (`updateDevice`, so every decoded message sends the device);
+  - the latest positions (`PostProcessHandler`);
+  - raw inbound reads as logs (`StandardLoggingHandler`). TCP and UDP log after the read is
+    handled; HTTP connections record their reads and log them after the request.
+- **The API feeds the hub:** a created device joins its creator's sockets, and new accumulator
+  positions are pushed. The API also updates ingest's cache, as Java's resources update
+  `CacheManager`.
+- **Harness:** `Socket` steps (open, send, read, close), and the `live` suite in CI. The
+  `gorilla/websocket` library is the new dependency; Go's standard library has no
+  WebSocket server.
+
+Java behavior reproduced:
+1. **Device messages carry a stale `positionId`.** Java sends its cached `Device`, but
+   `PostProcessHandler` writes `positionId` through a new `Device` object. So the socket shows
+   the `positionId` from when the device was cached, or last updated through the API. Go's
+   cache keeps the same snapshot.
+2. **A user's device set is read when the user's first socket opens.** After that, only
+   devices the user creates are added, and creating one *replaces* that device's user set
+   (`deviceUsers.put`). Other users' open sockets stop receiving it. Links made through
+   permissions or groups take effect once all of the user's sockets have closed.
+3. **Handshake answers.** No user gives 200 without an upgrade (Jetty's answer when the
+   creator returns null). A failing token login gives 500. A request that isn't an upgrade
+   gives 405 `text/html;charset=iso-8859-1`, without CORS headers.
+4. **Logs.** Only inbound reads are logged, never replies. A read is logged after it is
+   decoded, so a session it opens counts. `logger.decodeTextData` (default true) logs
+   printable data as text, with CR and LF escaped. Reads of a connection without a session
+   go to every socket that asked for logs, but only when the connection reported an unknown
+   unique id and `web.showUnknownDevices` is on.
+5. **Events reach sockets only through the web notificator** (`NotificatorWeb`, Step 9).
+   `Hub.UpdateEvent` is ready for it.
+
+**Coexistence consequence (decide before Step 10).** A socket only sees what its own process
+processes; Java uses no broadcast here, since the plan leaves Redis out. While the API stays on
+Java, devices whose port has moved to Go send no live updates to the web UI. Maps and lists
+refresh only on reload. So moving the OsmAnd port alone would freeze live tracking for those
+devices. There are three options:
+- cut over the API and the ports together;
+- enable a broadcast service in Java and Go (Java's multicast or Redis);
+- accept polling until the API moves.

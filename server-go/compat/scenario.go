@@ -64,6 +64,9 @@ type Step struct {
 
 	// Sleep waits on each side (for timeouts) and compares nothing.
 	Sleep time.Duration
+
+	// Socket is a WebSocket step (see Socket).
+	Socket *Socket
 }
 
 // Traffic sends raw device messages to a protocol port, like a tracker would.
@@ -88,6 +91,7 @@ type side struct {
 	clients map[string]*http.Client
 	aliases map[string]string // random value → stable alias, see jsonOptions
 	other   *side             // the opposite side, for Cross steps
+	sockets map[string]*wsClient
 	scope   map[string]string // variables used by expand for the current step
 }
 
@@ -150,6 +154,9 @@ func (r *side) do(ctx context.Context, s Step) (*response, error) {
 	defer func() { r.scope = nil }()
 	if s.Device != nil {
 		return r.traffic(ctx, s.Device)
+	}
+	if s.Socket != nil {
+		return r.socket(ctx, s)
 	}
 	if s.Sleep > 0 {
 		time.Sleep(s.Sleep)

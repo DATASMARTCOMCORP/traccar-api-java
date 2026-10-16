@@ -297,5 +297,17 @@ func describe(s Step) string {
 	if s.Sleep > 0 {
 		return "sleep " + s.Sleep.String()
 	}
+	if s.Socket != nil {
+		op := s.Socket
+		switch {
+		case op.Open:
+			return "socket " + op.Name + " open " + op.Query
+		case op.Send != "":
+			return "socket " + op.Name + " send " + op.Send
+		case op.Read:
+			return "socket " + op.Name + " read"
+		}
+		return "socket " + op.Name + " close"
+	}
 	return s.Method + " " + s.Path
 }

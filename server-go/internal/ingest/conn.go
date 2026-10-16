@@ -30,6 +30,8 @@ type Conn struct {
 	// where the decoder returns its response).
 	write    func(remote string, data any) error
 	pipeline *Pipeline // TCP and UDP
+	// rec records an HTTP connection's raw reads, for the device log (nil otherwise).
+	rec *recordingConn
 	// dataCommands are the protocol's supported data commands (setSupportedDataCommands).
 	dataCommands []string
 	ownQueue     bool // Protocol.OwnQueue
@@ -248,12 +250,14 @@ func (p *Processor) serveHTTP(l *Listener, proto Protocol, port int, dec HTTPDec
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			conn := &Conn{p: p, protocol: protocol, http: true, local: c.LocalAddr().String(),
 				dataCommands: proto.DataCommands, ownQueue: proto.OwnQueue}
+			conn.rec, _ = c.(*recordingConn)
 			conns.Store(c, conn)
 			return context.WithValue(ctx, connKey{}, conn)
 		},
 		ConnState: func(c net.Conn, state http.ConnState) {
 			if state == http.StateClosed || state == http.StateHijacked {
 				if v, ok := conns.LoadAndDelete(c); ok {
+					p.logHTTPReads(v.(*Conn), c.RemoteAddr().String())
 					p.channelInactive(v.(*Conn), c.RemoteAddr().String())
 				}
 			}
@@ -269,7 +273,7 @@ func (p *Processor) serveHTTP(l *Listener, proto Protocol, port int, dec HTTPDec
 			}
 			return fmt.Errorf("%s: %w", protocol, err)
 		}
-		lns = append(lns, ln)
+		lns = append(lns, recordingListener{ln})
 	}
 	l.https = append(l.https, srv)
 	for _, ln := range lns {
@@ -314,6 +318,7 @@ func (p *Processor) httpHandler(protocol string, dec HTTPDecoder, maxLength int)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn := r.Context().Value(connKey{}).(*Conn)
+		defer p.logHTTPReads(conn, r.RemoteAddr)
 		body, err := io.ReadAll(io.LimitReader(r.Body, int64(maxLength)+1))
 		if err != nil {
 			panic(http.ErrAbortHandler)

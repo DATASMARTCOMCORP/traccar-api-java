@@ -342,6 +342,10 @@ func (s *sessions) updateDevice(ctx context.Context, deviceID int64, status stri
 	if err := s.p.st.UpdateDeviceStatus(ctx, &d); err != nil {
 		s.p.log.Warn("Update device status error", "error", err)
 	}
+	if positionID, ok := s.p.cache.positionID(deviceID); ok {
+		d.PositionID = positionID // the cached Device is what Java sends
+	}
+	s.p.live.UpdateDevice(d)
 }
 
 // throttleInfo is DeviceLookupService's per-identifier backoff for unknown devices.

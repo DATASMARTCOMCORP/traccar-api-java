@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/config"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/live"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/model"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/store"
 )
@@ -37,6 +38,11 @@ type Processor struct {
 
 	qmu    sync.Mutex
 	queues map[int64][]job // per device: the position being processed, then those waiting
+
+	// live receives device, position and log updates for the WebSocket; nil: none.
+	live *live.Hub
+	// textLogs is logger.decodeTextData: printable messages are logged as text.
+	textLogs bool
 
 	settings
 }
@@ -80,7 +86,7 @@ type settings struct {
 
 // NewProcessor reads the settings and returns a processor ready for connections.
 func NewProcessor(cfg *config.Config, st *store.Store, log *slog.Logger) (*Processor, error) {
-	p := &Processor{cfg: cfg, st: st, log: log, queues: map[int64][]job{}}
+	p := &Processor{cfg: cfg, st: st, log: log, queues: map[int64][]job{}, textLogs: cfg.Bool("logger.decodeTextData", true)}
 	if err := p.readSettings(); err != nil {
 		return nil, err
 	}
@@ -259,4 +265,34 @@ func (p *Processor) Shutdown(ctx context.Context) error {
 		p.cancel()
 		return ctx.Err()
 	}
+}
+
+// SetLive connects the WebSocket hub: devices, positions and device logs are pushed to it.
+func (p *Processor) SetLive(h *live.Hub) { p.live = h }
+
+// DeviceChanged is CacheManager.invalidateObject(Device, UPDATE) after the API updates a
+// device: a cached device is read again.
+func (p *Processor) DeviceChanged(ctx context.Context, deviceID int64) {
+	if err := p.cache.reload(ctx, deviceID); err != nil {
+		p.log.Warn("Device cache reload error", "deviceId", deviceID, "error", err)
+	}
+}
+
+// PositionStored is what DeviceResource.updateAccumulators does after storing a new latest
+// position: the cached device takes it, and the sockets get it.
+func (p *Processor) PositionStored(ctx context.Context, pos *model.Position) error {
+	ref := new(byte)
+	if err := p.cache.addDevice(ctx, pos.DeviceID, ref); err != nil {
+		return err
+	}
+	defer p.cache.removeDevice(pos.DeviceID, ref)
+	dc, err := p.loadContext(ctx, pos.DeviceID)
+	if err != nil {
+		return err
+	}
+	if err := p.cache.update(ctx, dc, pos); err != nil {
+		return err
+	}
+	p.live.UpdatePosition(pos)
+	return nil
 }

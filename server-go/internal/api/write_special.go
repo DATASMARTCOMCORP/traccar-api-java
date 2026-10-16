@@ -463,6 +463,14 @@ func (a *API) putAccumulators(w http.ResponseWriter, r *request) error {
 	if err := a.st.UpdateDevicePosition(r.Context(), &model.Device{ID: p.DeviceID, PositionID: p.ID}); err != nil {
 		return err
 	}
+	// The cached device takes the position, and the sockets get it.
+	if a.opts.Ingest != nil {
+		if err := a.opts.Ingest.PositionStored(r.Context(), &p); err != nil {
+			return err
+		}
+	} else {
+		a.opts.Live.UpdatePosition(&p)
+	}
 	a.audit(r.Context(), r.Request, "accumulators", r.user.ID, "device", deviceID)
 	w.WriteHeader(http.StatusNoContent)
 	return nil
