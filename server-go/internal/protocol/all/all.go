@@ -185,6 +185,9 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/r12w"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/r16h"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/racedynamics"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/radar"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/radshid"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/ramac"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/raveon"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/recoda"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/retranslator"
@@ -443,6 +446,9 @@ var protocols = map[string]Constructor{
 	"r12w":           fixed(r12w.Protocol),
 	"r16h":           fixed(r16h.Protocol),
 	"racedynamics":   fixed(racedynamics.Protocol),
+	"radar":          fixed(radar.Protocol),
+	"radshid":        fixed(radshid.Protocol),
+	"ramac":          fixed(ramac.Protocol),
 	"raveon":         fixed(raveon.Protocol),
 	"recoda":         fixed(recoda.Protocol),
 	"retranslator":   fixed(retranslator.Protocol),
