@@ -1,0 +1,45 @@
+package huasheng
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/ingest"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/kit"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/oracle"
+)
+
+func TestJavaDecoder(t *testing.T) {
+	oracle.Run(t, "HuaShengProtocolDecoderTest", oracle.Handlers{
+		Decoder: func(string, *oracle.Env) ingest.Decoder { return ingest.DecoderFunc(decode) },
+	})
+}
+
+// HuaShengFrameDecoderTest uses assertEquals, so it has no recorded calls: its vectors
+// are checked here.
+func TestJavaFramer(t *testing.T) {
+	vectors := [][2]string{
+		{"c0010c00120060000000000004000600010100c0", "c0010c00120060000000000004000600010100c0"},
+		{"c0010c003e0002000000000010020012a0014f42445f3347315f56312e302e330013a0043335353835353035303434303635380006a08701000006a0a1035fc0",
+			"c0010c003e0002000000000010020012a0014f42445f3347315f56312e302e330013a0043335353835353035303434303635380006a08701000006a0a1035fc0"},
+		{"c00000003faa0000000000003ea5a5005a3f00dbdc00000031363037303530373132353700e6d186ffcc7a25002201160010000000010015000000000000000000c0",
+			"c00000003faa0000000000003ea5a5005a3f00c000000031363037303530373132353700e6d186ffcc7a25002201160010000000010015000000000000000000c0"},
+		{"C000000041AA00000000000030DBDC00000031353035323630373538323800ADDCC100226AEF0000000000120005000100151206EF0504E99975002903EB80556492CEC0",
+			"C000000041AA00000000000030C000000031353035323630373538323800ADDCC100226AEF0000000000120005000100151206EF0504E99975002903EB80556492CEC0"},
+		{"C000000044AA00000000000030DBDC00000031353035323630373538323800ADDCC100226AEF00000000001200050001001880033C0300190BFB000804BAFF00645866487F28C0",
+			"C000000044AA00000000000030C000000031353035323630373538323800ADDCC100226AEF00000000001200050001001880033C0300190BFB000804BAFF00645866487F28C0"},
+	}
+	env := oracle.NewEnv()
+	for _, v := range vectors {
+		got := Framer().Frame(env.Message(oracle.Record{}), kit.Hex(v[0]))
+		if b, ok := got.(*kit.Buf); !ok || b.HexDump() != strings.ToLower(v[1]) {
+			t.Errorf("frame %s: got %v, want %s", v[0], got, v[1])
+		}
+	}
+}
+
+func TestJavaEncoder(t *testing.T) {
+	oracle.Run(t, "HuaShengProtocolEncoderTest", oracle.Handlers{
+		Encoder: func(string, ingest.Decoder) ingest.CommandEncoder { return ingest.CommandEncoderFunc(encode) },
+	})
+}
