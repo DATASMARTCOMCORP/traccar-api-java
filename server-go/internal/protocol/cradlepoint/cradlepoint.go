@@ -24,21 +24,21 @@ func Protocol() ingest.Protocol {
 }
 
 var pattern = kit.NewPattern().
-	Expression("([^,]+),").     // id
-	Number("(d{1,6}),").        // time (hhmmss)
-	Number("(d+)(dd.d+),").     // latitude
-	Expression("([NS]),").      //
-	Number("(d+)(dd.d+),").     // longitude
-	Expression("([EW]),").      //
-	Number("(d+.d+)?,").        // speed
-	Number("(d+.d+)?,").        // course
-	Expression("([^,]+)?,").    // carrier
-	Expression("([^,]+)?,").    // serdis
-	Number("(-?d+)?,").         // rsrp
-	Number("(-?d+)?,").         // rssi
-	Number("(-?d+)?,").         // rsrq
-	Expression("([^,]+)?,").    // ecio
-	Expression("([^,]+)?").     // wan ip
+	Expression("([^,]+),").  // id
+	Number("(d{1,6}),").     // time (hhmmss)
+	Number("(d+)(dd.d+),").  // latitude
+	Expression("([NS]),").   //
+	Number("(d+)(dd.d+),").  // longitude
+	Expression("([EW]),").   //
+	Number("(d+.d+)?,").     // speed
+	Number("(d+.d+)?,").     // course
+	Expression("([^,]+)?,"). // carrier
+	Expression("([^,]+)?,"). // serdis
+	Number("(-?d+)?,").      // rsrp
+	Number("(-?d+)?,").      // rssi
+	Number("(-?d+)?,").      // rsrq
+	Expression("([^,]+)?,"). // ecio
+	Expression("([^,]+)?").  // wan ip
 	Compile()
 
 func decode(m *ingest.Message, msg any) any {
