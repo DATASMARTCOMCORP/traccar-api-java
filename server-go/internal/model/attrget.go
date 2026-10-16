@@ -71,6 +71,40 @@ func (a *Attributes) JavaLong(key string) (int64, error) {
 	return ParseLong(JavaToString(v))
 }
 
+// JavaInt is getInteger: numbers through intValue (a double saturates, a long keeps its
+// low 32 bits), anything else through Integer.parseInt of its text; 0 when absent.
+func (a *Attributes) JavaInt(key string) (int, error) {
+	v, ok := a.Get(key)
+	if !ok || v == nil {
+		return 0, nil
+	}
+	switch x := v.(type) {
+	case int:
+		return int(int32(x)), nil
+	case int64:
+		return int(int32(x)), nil
+	case float64:
+		return javaDoubleToInt(x), nil
+	case *big.Int:
+		return int(int32(new(big.Int).And(x, new(big.Int).SetUint64(math.MaxUint32)).Uint64())), nil
+	}
+	i, err := ParseInt(JavaToString(v))
+	return int(i), err
+}
+
+// javaDoubleToInt is Java's (int) cast: truncation, saturation, NaN to 0.
+func javaDoubleToInt(f float64) int {
+	switch {
+	case math.IsNaN(f):
+		return 0
+	case f >= math.MaxInt32:
+		return math.MaxInt32
+	case f <= math.MinInt32:
+		return math.MinInt32
+	}
+	return int(f)
+}
+
 func doubleValue(v any) (float64, bool) {
 	switch x := v.(type) {
 	case int64:

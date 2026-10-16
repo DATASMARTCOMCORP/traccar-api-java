@@ -264,6 +264,7 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/vt200"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/vtfms"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/watch"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/wialon"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/xexun2"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/xexun3"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/xirgo"
@@ -542,6 +543,7 @@ var protocols = map[string]Constructor{
 	"vt200":          fixed(vt200.Protocol),
 	"vtfms":          fixed(vtfms.Protocol),
 	"watch":          fixed(watch.Protocol),
+	"wialon":         fixed(wialon.Protocol),
 	"xexun2":         fixed(xexun2.Protocol),
 	"xexun3":         fixed(xexun3.Protocol),
 	"xirgo":          withConfig(xirgo.Protocol),

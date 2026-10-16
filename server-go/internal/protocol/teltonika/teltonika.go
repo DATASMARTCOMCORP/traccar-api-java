@@ -254,12 +254,15 @@ func removeLong(pos *model.Position, key string) *int64 {
 
 // removeInteger is removeInteger: intValue, the low 32 bits of the stored integer.
 func removeInteger(pos *model.Position, key string) *int {
-	v := removeLong(pos, key)
-	if v == nil {
+	if !pos.Attributes.Has(key) {
 		return nil
 	}
-	i := int(int32(*v))
-	return &i
+	v, err := pos.Attributes.JavaInt(key)
+	if err != nil {
+		panic(err)
+	}
+	pos.Attributes.Delete(key)
+	return &v
 }
 
 func must[T any](v *T) T {
@@ -308,13 +311,12 @@ func (d *Decoder) decodeNetwork(m *ingest.Message, pos *model.Position, deviceMo
 			// Java sets the radio type "lte" on a Network it then discards.
 			cellTower = m.CellTowerFromLacCid(*lac, *cid4g)
 		}
-		operator, err := pos.Attributes.JavaLong(model.KeyOperator) // getInteger: intValue
+		operator, err := pos.Attributes.JavaInt(model.KeyOperator)
 		if err != nil {
 			panic(err)
 		}
-		operator = int64(int32(operator))
 		if operator >= 1000 {
-			if err := cellTower.SetOperator(operator); err != nil {
+			if err := cellTower.SetOperator(int64(operator)); err != nil {
 				panic(err)
 			}
 		}
