@@ -230,6 +230,9 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/telemax"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/telic"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/teltonika"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/teratrack"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/thinkpower"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/thinkrace"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/thuraya"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tk102"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tk103"
@@ -499,6 +502,9 @@ var protocols = map[string]Constructor{
 	"telemax":        fixed(telemax.Protocol),
 	"telic":          fixed(telic.Protocol),
 	"teltonika":      withConfig(teltonika.Protocol),
+	"teratrack":      fixed(teratrack.Protocol),
+	"thinkpower":     fixed(thinkpower.Protocol),
+	"thinkrace":      fixed(thinkrace.Protocol),
 	"thuraya":        fixed(thuraya.Protocol),
 	"tk102":          fixed(tk102.Protocol),
 	"tk103":          withConfig(tk103.Protocol),
