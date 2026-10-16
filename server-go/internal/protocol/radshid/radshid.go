@@ -17,11 +17,16 @@ func Protocol() ingest.Protocol {
 	return ingest.Protocol{
 		Name: "radshid",
 		Servers: []ingest.Server{{NewPipeline: func() ingest.Pipeline {
-			f := ingest.NewLengthFramer(ingest.MaxFrameLengthLarge, 0, 4, 0, 0)
-			f.LittleEndian = true
-			return ingest.Pipeline{Framer: f, Decoder: ingest.DecoderFunc(decode)}
+			return ingest.Pipeline{Framer: Framer(), Decoder: ingest.DecoderFunc(decode)}
 		}}},
 	}
+}
+
+// Framer is the little-endian LengthFieldBasedFrameDecoder: a 4-byte length first.
+func Framer() ingest.Framer {
+	f := ingest.NewLengthFramer(ingest.MaxFrameLengthLarge, 0, 4, 0, 0)
+	f.LittleEndian = true
+	return f
 }
 
 func decodeAlarm(event int) string {

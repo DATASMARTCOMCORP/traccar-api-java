@@ -12,3 +12,9 @@ func TestJavaDecoder(t *testing.T) {
 		Decoder: func(string, *oracle.Env) ingest.Decoder { return ingest.DecoderFunc(decode) },
 	})
 }
+
+func TestJavaFrameDecoder(t *testing.T) {
+	oracle.Run(t, "RadshidFrameDecoderTest", oracle.Handlers{
+		Framer: func(string) ingest.Framer { return Framer() },
+	})
+}

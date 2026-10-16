@@ -27,3 +27,9 @@ func TestJavaEncoder(t *testing.T) {
 		t.Errorf("engineStop: %v", got)
 	}
 }
+
+func TestJavaEncoderRecorded(t *testing.T) {
+	oracle.Run(t, "ItsProtocolEncoderTest", oracle.Handlers{
+		Encoder: func(string, ingest.Decoder) ingest.CommandEncoder { return ingest.CommandEncoderFunc(encode) },
+	})
+}

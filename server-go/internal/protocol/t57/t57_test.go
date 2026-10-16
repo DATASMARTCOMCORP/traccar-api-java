@@ -23,3 +23,9 @@ func TestFramer(t *testing.T) {
 		t.Errorf("frame: got %v", got)
 	}
 }
+
+func TestJavaFrameDecoder(t *testing.T) {
+	oracle.Run(t, "T57FrameDecoderTest", oracle.Handlers{
+		Framer: func(string) ingest.Framer { return Framer() },
+	})
+}

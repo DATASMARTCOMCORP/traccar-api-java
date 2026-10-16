@@ -29,3 +29,20 @@ func TestEncoder(t *testing.T) {
 		t.Errorf("SMS encode: %v", got)
 	}
 }
+
+func TestJavaFrameDecoder(t *testing.T) {
+	oracle.Run(t, "TotemFrameDecoderTest", oracle.Handlers{
+		Framer: func(string) ingest.Framer { return Framer() },
+	})
+}
+
+func TestJavaEncoderRecorded(t *testing.T) {
+	oracle.Run(t, "TotemProtocolEncoderTest", oracle.Handlers{
+		Encoder: func(method string, _ ingest.Decoder) ingest.CommandEncoder {
+			if method == "testSmsEncode" {
+				return SMSEncoder
+			}
+			return ingest.CommandEncoderFunc(encode)
+		},
+	})
+}
