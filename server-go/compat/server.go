@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -261,13 +262,32 @@ func (t *target) alive() bool {
 	}
 }
 
+// handedOut are the ports freePort returned in this run: the kernel can hand the same
+// ephemeral port out again once the probe closes, and two targets' ports must differ.
+var (
+	handedOutMu sync.Mutex
+	handedOut   = map[int]bool{}
+)
+
+// freePort returns a port no other target of this run uses and nothing listens on (TCP or
+// UDP, since protocol ports serve both).
 func freePort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
+	handedOutMu.Lock()
+	defer handedOutMu.Unlock()
+	for range 100 {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return 0, err
+		}
+		port := l.Addr().(*net.TCPAddr).Port
+		l.Close()
+		if handedOut[port] || !portFree(port) {
+			continue
+		}
+		handedOut[port] = true
+		return port, nil
 	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port, nil
+	return 0, errors.New("no free port")
 }
 
 // portFree reports whether nothing listens on the port, on any address, for TCP and UDP.
