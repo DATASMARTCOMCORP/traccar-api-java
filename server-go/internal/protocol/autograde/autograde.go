@@ -27,16 +27,16 @@ func Protocol() ingest.Protocol {
 
 var pattern = kit.NewPattern().
 	Text("(").
-	Number("d{12}").              // index
-	Number("(d{15})").            // imei
-	Number("(dd)(dd)(dd)").       // date (ddmmyy)
-	Expression("([AV])").         // validity
-	Number("(d+)(dd.d+)([NS])").  // latitude
-	Number("(d+)(dd.d+)([EW])").  // longitude
-	Number("([d.]{5})").          // speed
-	Number("(dd)(dd)(dd)").       // time (hhmmss)
-	Number("([d.]{6})").          // course
-	Expression("(.)").            // status
+	Number("d{12}").             // index
+	Number("(d{15})").           // imei
+	Number("(dd)(dd)(dd)").      // date (ddmmyy)
+	Expression("([AV])").        // validity
+	Number("(d+)(dd.d+)([NS])"). // latitude
+	Number("(d+)(dd.d+)([EW])"). // longitude
+	Number("([d.]{5})").         // speed
+	Number("(dd)(dd)(dd)").      // time (hhmmss)
+	Number("([d.]{6})").         // course
+	Expression("(.)").           // status
 	Number("A(xxxx)").
 	Number("B(xxxx)").
 	Number("C(xxxx)").

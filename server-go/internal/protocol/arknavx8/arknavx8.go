@@ -37,14 +37,14 @@ var pattern1G = kit.NewPattern().
 	Compile()
 
 var pattern2G = kit.NewPattern().
-	Expression("..,").            // type
-	Number("(dd)(dd)(dd)").       // date (yymmdd)
-	Number("(dd)(dd)(dd),").      // time (hhmmss)
-	Number("(d+),").              // satellites
-	Number("(d+.d+),").           // altitude
-	Number("(d+.d+),").           // power
-	Number("(d+.d+),").           // battery
-	Number("(d+.d+)").            // odometer
+	Expression("..,").       // type
+	Number("(dd)(dd)(dd)").  // date (yymmdd)
+	Number("(dd)(dd)(dd),"). // time (hhmmss)
+	Number("(d+),").         // satellites
+	Number("(d+.d+),").      // altitude
+	Number("(d+.d+),").      // power
+	Number("(d+.d+),").      // battery
+	Number("(d+.d+)").       // odometer
 	Compile()
 
 func decode(m *ingest.Message, msg any) any {

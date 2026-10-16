@@ -26,10 +26,10 @@ func sendResponse(m *ingest.Message, typ int) {
 	response.WriteShort(0x7878)
 	response.WriteShortLE(1 + 1 + 2 + 1 + 2) // length
 	response.WriteByte8(typ)
-	response.WriteByte8(0)    // error
-	response.WriteShortLE(0)  // report interval
-	response.WriteByte8(0)    // clear alarm
-	response.WriteShortLE(0)  // checksum
+	response.WriteByte8(0)   // error
+	response.WriteShortLE(0) // report interval
+	response.WriteByte8(0)   // clear alarm
+	response.WriteShortLE(0) // checksum
 	response.WriteByte8('\r')
 	response.WriteByte8('\n')
 	m.Send(response)
@@ -37,7 +37,7 @@ func sendResponse(m *ingest.Message, typ int) {
 
 func decode(m *ingest.Message, msg any) any {
 	buf := msg.(*kit.Buf)
-	buf.Skip(2)                // header
+	buf.Skip(2)               // header
 	buf.ReadUnsignedShortLE() // size
 	typ := buf.ReadUnsignedByte()
 

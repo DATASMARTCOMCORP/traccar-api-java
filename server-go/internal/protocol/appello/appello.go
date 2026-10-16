@@ -24,21 +24,21 @@ func Protocol() ingest.Protocol {
 }
 
 var pattern = kit.NewPattern().
-	Text("FOLLOWIT,").            // brand
-	Number("(d+),").              // imei
+	Text("FOLLOWIT,"). // brand
+	Number("(d+),").   // imei
 	GroupBegin().
-	Number("(dd)(dd)(dd)").       // date (yymmdd)
-	Number("(dd)(dd)(dd).?d*,").  // time (hhmmss)
+	Number("(dd)(dd)(dd)").      // date (yymmdd)
+	Number("(dd)(dd)(dd).?d*,"). // time (hhmmss)
 	Or().
 	Text("UTCTIME,").
 	GroupEnd().
-	Number("(-?d+.d+),").         // latitude
-	Number("(-?d+.d+),").         // longitude
-	Number("(d+),").              // speed
-	Number("(d+),").              // course
-	Number("(d+),").              // satellites
-	Number("(-?d+),").            // altitude
-	Expression("([FL]),").        // gps state
+	Number("(-?d+.d+),").  // latitude
+	Number("(-?d+.d+),").  // longitude
+	Number("(d+),").       // speed
+	Number("(d+),").       // course
+	Number("(d+),").       // satellites
+	Number("(-?d+),").     // altitude
+	Expression("([FL]),"). // gps state
 	Any().
 	Compile()
 

@@ -28,99 +28,99 @@ func Protocol() ingest.Protocol {
 
 var pattern = kit.NewPattern().
 	Text("$$").
-	Expression("[^,]*,").     // client
-	Number("(d+),").          // device serial number
-	Number("(d+),").          // event
-	Number("(-?d+.d+),").     // latitude
-	Number("(-?d+.d+),").     // longitude
-	Number("(dd)(dd)(dd)").   // date (yymmdd)
-	Number("(dd)(dd)(dd),").  // time (hhmmss)
-	Expression("([AV]),").    // validity
+	Expression("[^,]*,").    // client
+	Number("(d+),").         // device serial number
+	Number("(d+),").         // event
+	Number("(-?d+.d+),").    // latitude
+	Number("(-?d+.d+),").    // longitude
+	Number("(dd)(dd)(dd)").  // date (yymmdd)
+	Number("(dd)(dd)(dd),"). // time (hhmmss)
+	Expression("([AV]),").   // validity
 	GroupBegin().
-	Number("(d+),").          // gsm
-	Number("(d+),").          // speed
-	Number("(d+),").          // distance
+	Number("(d+),"). // gsm
+	Number("(d+),"). // speed
+	Number("(d+),"). // distance
 	GroupBegin().
-	Number("d+,").            // driver code
-	Number("(d+),").          // fuel
-	Number("([01]),").        // io 1
-	Number("[01],").          // case open switch
-	Number("[01],").          // over speed start
-	Number("[01],").          // over speed end
-	Number("(?:d+,){3}").     // reserved
-	Number("([01]),").        // power status
-	Number("([01]),").        // io 2
-	Number("d+,").            // reserved
-	Number("([01]),").        // ignition
-	Number("[01],").          // ignition off event
-	Number("(?:d+,){7}").     // reserved
-	Number("[01],").          // corner packet
-	Number("(?:d+,){8}").     // reserved
-	Number("([01]),").        // course bit 0
-	Number("([01]),").        // course bit 1
-	Number("([01]),").        // course bit 2
-	Number("([01]),").        // course bit 3
+	Number("d+,").        // driver code
+	Number("(d+),").      // fuel
+	Number("([01]),").    // io 1
+	Number("[01],").      // case open switch
+	Number("[01],").      // over speed start
+	Number("[01],").      // over speed end
+	Number("(?:d+,){3}"). // reserved
+	Number("([01]),").    // power status
+	Number("([01]),").    // io 2
+	Number("d+,").        // reserved
+	Number("([01]),").    // ignition
+	Number("[01],").      // ignition off event
+	Number("(?:d+,){7}"). // reserved
+	Number("[01],").      // corner packet
+	Number("(?:d+,){8}"). // reserved
+	Number("([01]),").    // course bit 0
+	Number("([01]),").    // course bit 1
+	Number("([01]),").    // course bit 2
+	Number("([01]),").    // course bit 3
 	Or().
-	Number("(d+),").          // course
-	Number("(?:d+,){3}").     // reserved
-	Number("[01],").          // over speed start
-	Number("[01],").          // over speed end
-	Number("(?:d+,){3}").     // reserved
-	Number("([01]),").        // power status
-	Number("(?:d+,){2}").     // reserved
-	Number("[01],").          // ignition on event
-	Number("([01]),").        // ignition
-	Number("[01],").          // ignition off event
-	Number("(?:d+,){5}").     // reserved
-	Number("[01],").          // low battery
-	Number("[01],").          // corner packet
-	Number("(?:d+,){6}").     // reserved
-	Number("[01],").          // hard acceleration
-	Number("[01],").          // hard braking
+	Number("(d+),").                // course
+	Number("(?:d+,){3}").           // reserved
+	Number("[01],").                // over speed start
+	Number("[01],").                // over speed end
+	Number("(?:d+,){3}").           // reserved
+	Number("([01]),").              // power status
+	Number("(?:d+,){2}").           // reserved
+	Number("[01],").                // ignition on event
+	Number("([01]),").              // ignition
+	Number("[01],").                // ignition off event
+	Number("(?:d+,){5}").           // reserved
+	Number("[01],").                // low battery
+	Number("[01],").                // corner packet
+	Number("(?:d+,){6}").           // reserved
+	Number("[01],").                // hard acceleration
+	Number("[01],").                // hard braking
 	Number("[01],[01],[01],[01],"). // course bits
-	Number("(d+),").          // external voltage
-	Number("(d+),").          // internal voltage
-	Number("(?:d+,){6}").     // reserved
-	Expression("P([^,]+),").  // obd
-	Expression("D([^,]+),").  // dtcs
-	Number("-?d+,").          // accelerometer x
-	Number("-?d+,").          // accelerometer y
-	Number("-?d+,").          // accelerometer z
-	Number("d+,").            // delta distance
+	Number("(d+),").                // external voltage
+	Number("(d+),").                // internal voltage
+	Number("(?:d+,){6}").           // reserved
+	Expression("P([^,]+),").        // obd
+	Expression("D([^,]+),").        // dtcs
+	Number("-?d+,").                // accelerometer x
+	Number("-?d+,").                // accelerometer y
+	Number("-?d+,").                // accelerometer z
+	Number("d+,").                  // delta distance
 	Or().
-	Number("(d+),").          // course
-	Number("(d+),").          // satellites
-	Number("(d+.d+),").       // hdop
-	Number("(?:d+,){2}").     // reserved
-	Number("(d+),").          // adc 1
-	Number("([01]),").        // di 1
-	Number("[01],").          // case open
-	Number("[01],").          // over speed start
-	Number("[01],").          // over speed end
-	Number("(?:[01],){2}").   // reserved
-	Number("[01],").          // immobilizer
-	Number("([01]),").        // power status
-	Number("([01]),").        // di 2
-	Number("(?:[01],){2}").   // reserved
-	Number("([01]),").        // ignition
-	Number("(?:[01],){6}").   // reserved
-	Number("[01],").          // low battery
-	Number("[01],").          // corner packet
-	Number("(?:[01],){4}").   // reserved
-	Number("[01],").          // do 1
-	Number("[01],").          // reserved
-	Number("[01],").          // hard acceleration
-	Number("[01],").          // hard braking
-	Number("(?:[01],){4}").   // reserved
-	Number("(d+),").          // external voltage
-	Number("(d+),").          // internal voltage
+	Number("(d+),").        // course
+	Number("(d+),").        // satellites
+	Number("(d+.d+),").     // hdop
+	Number("(?:d+,){2}").   // reserved
+	Number("(d+),").        // adc 1
+	Number("([01]),").      // di 1
+	Number("[01],").        // case open
+	Number("[01],").        // over speed start
+	Number("[01],").        // over speed end
+	Number("(?:[01],){2}"). // reserved
+	Number("[01],").        // immobilizer
+	Number("([01]),").      // power status
+	Number("([01]),").      // di 2
+	Number("(?:[01],){2}"). // reserved
+	Number("([01]),").      // ignition
+	Number("(?:[01],){6}"). // reserved
+	Number("[01],").        // low battery
+	Number("[01],").        // corner packet
+	Number("(?:[01],){4}"). // reserved
+	Number("[01],").        // do 1
+	Number("[01],").        // reserved
+	Number("[01],").        // hard acceleration
+	Number("[01],").        // hard braking
+	Number("(?:[01],){4}"). // reserved
+	Number("(d+),").        // external voltage
+	Number("(d+),").        // internal voltage
 	GroupEnd().
 	Or().
-	Number("(d+),").          // sensor id
-	Expression("([^,]+),").   // sensor data
+	Number("(d+),").        // sensor id
+	Expression("([^,]+),"). // sensor data
 	GroupEnd().
 	Text("*").
-	Number("xx").             // checksum
+	Number("xx"). // checksum
 	Compile()
 
 func decode(m *ingest.Message, msg any) any {

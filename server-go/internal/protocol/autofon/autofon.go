@@ -168,10 +168,10 @@ func decode(m *ingest.Message, msg any) any {
 
 		pos.Set(model.PrefixTemp+"1", int(buf.ReadSignedByte()))
 
-		buf.Skip(2)            // timer (interval and units)
-		buf.ReadSignedByte()   // mode
-		buf.ReadSignedByte()   // gprs sending interval
-		buf.Skip(6)            // mcc, mnc, lac, cid
+		buf.Skip(2)          // timer (interval and units)
+		buf.ReadSignedByte() // mode
+		buf.ReadSignedByte() // gprs sending interval
+		buf.Skip(6)          // mcc, mnc, lac, cid
 
 		valid := buf.ReadUnsignedByte()
 		pos.Valid = valid>>6 != 0

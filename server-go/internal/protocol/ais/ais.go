@@ -22,11 +22,11 @@ func Protocol() ingest.Protocol {
 
 var pattern = kit.NewPattern().
 	Text("!AIVDM,").
-	Number("(d+),").          // count
-	Number("(d+),").          // index
-	Number("(d+)?,").         // id
-	Expression(".,").         // radio channel
-	Expression("([^,]+),").   // payload
+	Number("(d+),").        // count
+	Number("(d+),").        // index
+	Number("(d+)?,").       // id
+	Expression(".,").       // radio channel
+	Expression("([^,]+),"). // payload
 	Any().
 	Compile()
 

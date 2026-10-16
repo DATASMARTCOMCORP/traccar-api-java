@@ -29,20 +29,20 @@ func Protocol() ingest.Protocol {
 }
 
 var pattern = kit.NewPattern().
-	Number("(d+),").             // imei
-	Expression(".{6},").         // id code
-	Number("ddd,").              // status
-	Number("Lddd,").             // version
-	Expression("([AV]),").       // validity
-	Number("(dd)(dd.d+),").      // latitude
+	Number("(d+),").        // imei
+	Expression(".{6},").    // id code
+	Number("ddd,").         // status
+	Number("Lddd,").        // version
+	Expression("([AV]),").  // validity
+	Number("(dd)(dd.d+),"). // latitude
 	Expression("([NS]),").
-	Number("(ddd)(dd.d+),").     // longitude
+	Number("(ddd)(dd.d+),"). // longitude
 	Expression("([EW]),").
-	Number("(d+.?d*),").         // speed
-	Number("(d+.?d*),").         // course
-	Number("(d+.?d*),").         // hdop
-	Number("(dd):(dd):(dd) ").   // time (hh:mm:ss)
-	Number("(dd)-(dd)-(dd),").   // date (dd-mm-yy)
+	Number("(d+.?d*),").       // speed
+	Number("(d+.?d*),").       // course
+	Number("(d+.?d*),").       // hdop
+	Number("(dd):(dd):(dd) "). // time (hh:mm:ss)
+	Number("(dd)-(dd)-(dd),"). // date (dd-mm-yy)
 	Any().
 	Compile()
 

@@ -24,24 +24,24 @@ func Protocol() ingest.Protocol {
 }
 
 var pattern = kit.NewPattern().
-	Number("M(dddd)").                   // index
-	Number("Td+").                       // phone
-	Number("I(d+)").                     // imei
+	Number("M(dddd)"). // index
+	Number("Td+").     // phone
+	Number("I(d+)").   // imei
 	Number("Ed+W").
 	Text("*****").
-	Number("d{8}d{4}").                  // local time
+	Number("d{8}d{4}"). // local time
 	Expression(".{8}#.{8}").
-	Number("d{10}").                     // status
-	Number("([-+])(ddd)(dd)(dddd)").     // longitude
-	Number("([-+])(ddd)(dd)(dddd)").     // latitude
-	Number("(dd)(dd)(dddd)").            // date (ddmmyyyy)
-	Number("(dd)(dd)(dd)").              // time (hhmmss)
-	Number("(ddd)").                     // course
+	Number("d{10}").                 // status
+	Number("([-+])(ddd)(dd)(dddd)"). // longitude
+	Number("([-+])(ddd)(dd)(dddd)"). // latitude
+	Number("(dd)(dd)(dddd)").        // date (ddmmyyyy)
+	Number("(dd)(dd)(dd)").          // time (hhmmss)
+	Number("(ddd)").                 // course
 	Number("d{6}").
-	Number("(ddd)").                     // speed
+	Number("(ddd)"). // speed
 	Number("d").
-	Number("(dd)").                      // battery
-	Expression("([01])").                // charging
+	Number("(dd)").       // battery
+	Expression("([01])"). // charging
 	Compile()
 
 func decode(m *ingest.Message, msg any) any {

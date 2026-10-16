@@ -25,15 +25,15 @@ func Protocol() ingest.Protocol {
 
 // Message types.
 const (
-	msgTrackerID             = 11
-	msgTrackerIDExt          = 12
-	msgStateFullInfoT104     = 92
-	msgCurrentGPSData        = 101
-	msgRequestLastLogIndex   = 120
-	msgLastLogIndex          = 121
-	msgRequestLogRecords     = 130
-	msgLogRecords            = 131
-	msgAckAlarm              = 160
+	msgTrackerID           = 11
+	msgTrackerIDExt        = 12
+	msgStateFullInfoT104   = 92
+	msgCurrentGPSData      = 101
+	msgRequestLastLogIndex = 120
+	msgLastLogIndex        = 121
+	msgRequestLogRecords   = 130
+	msgLogRecords          = 131
+	msgAckAlarm            = 160
 )
 
 // Decoder is ApelProtocolDecoder: it keeps the connection's log indexes.

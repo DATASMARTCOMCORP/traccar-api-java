@@ -88,22 +88,22 @@ func (f *framer) decode(_ *ingest.Message, buf *kit.Buf) any {
 
 var pattern = kit.NewPattern().
 	Text("$AV,").
-	Number("Vd,").                 // type
-	Number("(d+),").               // device id
-	Number("(d+),").               // index
-	Number("(d+),").               // power
-	Number("(d+),").               // battery
+	Number("Vd,").   // type
+	Number("(d+),"). // device id
+	Number("(d+),"). // index
+	Number("(d+),"). // power
+	Number("(d+),"). // battery
 	Number("-?d+,").
-	Expression("[01],").           // movement
-	Expression("([01]),").         // ignition
-	Number("(d+),").               // input
-	Number("d+,d+,").              // input 1
-	Number("d+,d+,").Optional().   // input 2
-	Expression("[01],").           // fix type
-	Number("(d+),").               // satellites
+	Expression("[01],").         // movement
+	Expression("([01]),").       // ignition
+	Number("(d+),").             // input
+	Number("d+,d+,").            // input 1
+	Number("d+,d+,").Optional(). // input 2
+	Expression("[01],").         // fix type
+	Number("(d+),").             // satellites
 	GroupBegin().
-	Number("(d+.d+)?,").           // altitude
-	Number("(?:d+.d+)?,").         // geoid height
+	Number("(d+.d+)?,").   // altitude
+	Number("(?:d+.d+)?,"). // geoid height
 	GroupEndWith("?").
 	Number("(dd)(dd)(dd),").       // time (hhmmss)
 	Number("(dd)(dd.d+)([NS]),").  // latitude
@@ -154,9 +154,9 @@ func decodeText(m *ingest.Message, msg any) any {
 }
 
 const (
-	headerStartSign   = 0xff
-	headerVersion1    = 0x22
-	headerVersion2    = 0x23
+	headerStartSign    = 0xff
+	headerVersion1     = 0x22
+	headerVersion2     = 0x23
 	headerVersion2Wifi = 0x25
 
 	recordPing   = 0x00

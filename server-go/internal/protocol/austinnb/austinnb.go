@@ -20,16 +20,16 @@ func Protocol() ingest.Protocol {
 }
 
 var pattern = kit.NewPattern().
-	Number("(d+);").              // imei
-	Number("(dddd)-(dd)-(dd) ").  // date
-	Number("(dd):(dd):(dd);").    // time
-	Number("(-?d+,d+);").         // latitude
-	Number("(-?d+,d+);").         // longitude
-	Number("(d+);").              // azimuth
-	Number("(d+);").              // angle
-	Number("(d+);").              // range
-	Number("(d+);").              // out of range
-	Expression("(.*)").           // operator
+	Number("(d+);").             // imei
+	Number("(dddd)-(dd)-(dd) "). // date
+	Number("(dd):(dd):(dd);").   // time
+	Number("(-?d+,d+);").        // latitude
+	Number("(-?d+,d+);").        // longitude
+	Number("(d+);").             // azimuth
+	Number("(d+);").             // angle
+	Number("(d+);").             // range
+	Number("(d+);").             // out of range
+	Expression("(.*)").          // operator
 	Any().
 	Compile()
 
