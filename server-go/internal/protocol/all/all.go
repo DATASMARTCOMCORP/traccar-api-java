@@ -209,6 +209,9 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/smokey"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/snapper"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/solarpowered"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/spot"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/starcom"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/starlink"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/stb"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/stl060"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/suntech"
@@ -472,6 +475,9 @@ var protocols = map[string]Constructor{
 	"smokey":         fixed(smokey.Protocol),
 	"snapper":        fixed(snapper.Protocol),
 	"solarpowered":   fixed(solarpowered.Protocol),
+	"spot":           fixed(spot.Protocol),
+	"starcom":        fixed(starcom.Protocol),
+	"starlink":       withConfig(starlink.Protocol),
 	"stb":            fixed(stb.Protocol),
 	"stl060":         fixed(stl060.Protocol),
 	"suntech":        fixed(suntech.Protocol),

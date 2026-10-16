@@ -313,6 +313,15 @@ func IndexOf(s, sub string) int {
 	return Len(s[:i])
 }
 
+// LastIndexOf is String.lastIndexOf(sub), in UTF-16 chars.
+func LastIndexOf(s, sub string) int {
+	i := strings.LastIndex(s, sub)
+	if i <= 0 || isASCII(s[:i]) {
+		return i
+	}
+	return Len(s[:i])
+}
+
 // Trim is String.trim: chars up to ' ' are removed from both ends.
 func Trim(s string) string {
 	return strings.TrimFunc(s, func(r rune) bool { return r <= ' ' })
