@@ -139,12 +139,99 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/milesmate"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/minifinder"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/minifinder2"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/mobilogix"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/moovbox"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/motor"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/mta6"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/mtx"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/mxt"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/navigil"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/navis"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/naviset"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/ndtpv6"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/neos"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/net"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/niot"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/omnicomm"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/opengts"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/orbcomm"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/orion"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/osmand"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/outsafe"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/owntracks"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/pacifictrack"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/pathaway"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/piligrim"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/plugin"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/polte"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/portman"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/positrex"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/pretrace"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/pricol"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/progress"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/pst"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/pt215"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/pt3000"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/pui"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/raveon"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/recoda"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/retranslator"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/rftrack"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/riti"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/robotrack"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/rst"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/ruptela"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/s168"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/sabertek"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/sanav"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/sanul"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/satsol"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/sigfox"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/siwi"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/skypatrol"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/smartcar"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/smartsole"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/solarpowered"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/stb"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/stl060"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/suntech"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/supermate"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/svias"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/swiftech"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/t55"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/t57"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/t622iridium"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/t800x"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/taip"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/techtlt"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/techtocruz"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tek"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/telemax"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/thuraya"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tk102"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tk103"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tlt2h"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tlv"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tmg"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/topflytech"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/topin"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/totem"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tr20"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tr900"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/trackbox"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/trakmate"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/tzone"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/ulbotech"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/upro"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/uux"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/v680"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/valtrack"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/visiontek"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/vlt"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/vnet"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/vt200"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/vtfms"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/watch"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/xexun2"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/xexun3"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/xirgo"
@@ -298,12 +385,99 @@ var protocols = map[string]Constructor{
 	"milesmate":      fixed(milesmate.Protocol),
 	"minifinder":     fixed(minifinder.Protocol),
 	"minifinder2":    fixed(minifinder2.Protocol),
+	"mobilogix":      fixed(mobilogix.Protocol),
+	"moovbox":        fixed(moovbox.Protocol),
+	"motor":          fixed(motor.Protocol),
+	"mta6":           withConfig(mta6.Protocol),
+	"mtx":            fixed(mtx.Protocol),
+	"mxt":            fixed(mxt.Protocol),
+	"navigil":        fixed(navigil.Protocol),
+	"navis":          fixed(navis.Protocol),
+	"naviset":        fixed(naviset.Protocol),
+	"ndtpv6":         fixed(ndtpv6.Protocol),
+	"neos":           fixed(neos.Protocol),
+	"net":            fixed(net.Protocol),
+	"niot":           fixed(niot.Protocol),
+	"omnicomm":       fixed(omnicomm.Protocol),
+	"opengts":        fixed(opengts.Protocol),
 	"orbcomm":        withConfig(orbcomm.Protocol),
+	"orion":          fixed(orion.Protocol),
 	"osmand":         osmand.Protocol,
+	"outsafe":        fixed(outsafe.Protocol),
+	"owntracks":      fixed(owntracks.Protocol),
+	"pacifictrack":   fixed(pacifictrack.Protocol),
+	"pathaway":       fixed(pathaway.Protocol),
+	"piligrim":       fixed(piligrim.Protocol),
+	"plugin":         fixed(plugin.Protocol),
+	"polte":          fixed(polte.Protocol),
+	"portman":        fixed(portman.Protocol),
+	"positrex":       fixed(positrex.Protocol),
+	"pretrace":       fixed(pretrace.Protocol),
+	"pricol":         fixed(pricol.Protocol),
+	"progress":       fixed(progress.Protocol),
+	"pst":            fixed(pst.Protocol),
+	"pt215":          fixed(pt215.Protocol),
+	"pt3000":         fixed(pt3000.Protocol),
 	"pui":            fixed(pui.Protocol),
+	"raveon":         fixed(raveon.Protocol),
+	"recoda":         fixed(recoda.Protocol),
+	"retranslator":   fixed(retranslator.Protocol),
+	"rftrack":        fixed(rftrack.Protocol),
+	"riti":           fixed(riti.Protocol),
+	"robotrack":      fixed(robotrack.Protocol),
+	"rst":            fixed(rst.Protocol),
+	"ruptela":        fixed(ruptela.Protocol),
+	"s168":           fixed(s168.Protocol),
+	"sabertek":       fixed(sabertek.Protocol),
+	"sanav":          fixed(sanav.Protocol),
+	"sanul":          fixed(sanul.Protocol),
+	"satsol":         fixed(satsol.Protocol),
+	"sigfox":         fixed(sigfox.Protocol),
+	"siwi":           fixed(siwi.Protocol),
+	"skypatrol":      withConfig(skypatrol.Protocol),
+	"smartcar":       fixed(smartcar.Protocol),
+	"smartsole":      fixed(smartsole.Protocol),
 	"solarpowered":   fixed(solarpowered.Protocol),
+	"stb":            fixed(stb.Protocol),
+	"stl060":         fixed(stl060.Protocol),
 	"suntech":        fixed(suntech.Protocol),
+	"supermate":      fixed(supermate.Protocol),
+	"svias":          fixed(svias.Protocol),
+	"swiftech":       fixed(swiftech.Protocol),
+	"t55":            fixed(t55.Protocol),
+	"t57":            fixed(t57.Protocol),
+	"t622iridium":    fixed(t622iridium.Protocol),
+	"t800x":          fixed(t800x.Protocol),
+	"taip":           withConfig(taip.Protocol),
+	"techtlt":        fixed(techtlt.Protocol),
+	"techtocruz":     fixed(techtocruz.Protocol),
+	"tek":            fixed(tek.Protocol),
+	"telemax":        fixed(telemax.Protocol),
+	"thuraya":        fixed(thuraya.Protocol),
+	"tk102":          fixed(tk102.Protocol),
+	"tk103":          withConfig(tk103.Protocol),
+	"tlt2h":          fixed(tlt2h.Protocol),
+	"tlv":            fixed(tlv.Protocol),
+	"tmg":            fixed(tmg.Protocol),
+	"topflytech":     fixed(topflytech.Protocol),
 	"topin":          withConfig(topin.Protocol),
+	"totem":          fixed(totem.Protocol),
+	"tr20":           fixed(tr20.Protocol),
+	"tr900":          fixed(tr900.Protocol),
+	"trackbox":       fixed(trackbox.Protocol),
+	"trakmate":       fixed(trakmate.Protocol),
+	"tzone":          withConfig(tzone.Protocol),
+	"ulbotech":       fixed(ulbotech.Protocol),
+	"upro":           fixed(upro.Protocol),
+	"uux":            fixed(uux.Protocol),
+	"v680":           fixed(v680.Protocol),
+	"valtrack":       fixed(valtrack.Protocol),
+	"visiontek":      fixed(visiontek.Protocol),
+	"vlt":            fixed(vlt.Protocol),
+	"vnet":           fixed(vnet.Protocol),
+	"vt200":          fixed(vt200.Protocol),
+	"vtfms":          fixed(vtfms.Protocol),
+	"watch":          fixed(watch.Protocol),
 	"xexun2":         fixed(xexun2.Protocol),
 	"xexun3":         fixed(xexun3.Protocol),
 	"xirgo":          withConfig(xirgo.Protocol),
