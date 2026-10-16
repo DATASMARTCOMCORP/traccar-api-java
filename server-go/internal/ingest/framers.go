@@ -341,3 +341,28 @@ func (f FixedFramer) Frame(_ *Message, in *kit.Buf) any {
 	}
 	return in.ReadSlice(f.Length)
 }
+
+// JSONFramer is JsonFrameDecoder: from the first '{' to its matching '}'.
+func JSONFramer() Framer {
+	return &BaseFramer{Decode: func(_ *Message, buf *kit.Buf) any {
+		start := buf.IndexOf(buf.ReaderIndex(), buf.WriterIndex(), '{')
+		if start < 0 {
+			return nil
+		}
+		buf.SetReaderIndex(start)
+		i, nesting := start+1, 1
+		for i < buf.WriterIndex() && nesting > 0 {
+			switch buf.GetByte(i) {
+			case '{':
+				nesting++
+			case '}':
+				nesting--
+			}
+			i++
+		}
+		if nesting == 0 {
+			return buf.ReadSlice(i - start)
+		}
+		return nil
+	}}
+}

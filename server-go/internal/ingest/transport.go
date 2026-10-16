@@ -39,6 +39,9 @@ type Pipeline struct {
 	TextOut bool   // StringEncoder: string replies are sent (as UTF-8)
 	Decoder Decoder
 	Encoder CommandEncoder
+	// FrameEncoder transforms every outgoing message's bytes (a frame encoder such as
+	// PstFrameEncoder, after the StringEncoder).
+	FrameEncoder func([]byte) []byte
 }
 
 // Server is one listener of a protocol (a TrackerServer): TCP, UDP (Datagram) or HTTP.
@@ -92,19 +95,26 @@ func toText(msg any) any {
 // encodeReply turns a reply into bytes: a string only passes a pipeline with a
 // StringEncoder (Netty fails the write otherwise).
 func encodeReply(pl Pipeline, data any) ([]byte, error) {
+	var b []byte
 	switch v := data.(type) {
 	case *kit.Buf:
-		return append([]byte(nil), v.Bytes()...), nil
+		b = append([]byte(nil), v.Bytes()...)
 	case []byte:
-		return v, nil
+		b = v
 	case string:
-		if pl.TextOut {
-			return []byte(v), nil // StringEncoder's charset is UTF-8
+		if !pl.TextOut {
+			return nil, fmt.Errorf("unsupported message type: %T", data)
 		}
+		b = []byte(v) // StringEncoder's charset is UTF-8
 	case nil:
 		return nil, errors.New("NullPointerException: msg")
+	default:
+		return nil, fmt.Errorf("unsupported message type: %T", data)
 	}
-	return nil, fmt.Errorf("unsupported message type: %T", data)
+	if pl.FrameEncoder != nil {
+		b = pl.FrameEncoder(b)
+	}
+	return b, nil
 }
 
 // ServeProtocol opens a protocol's servers on <name>.address and the port. As in Java's

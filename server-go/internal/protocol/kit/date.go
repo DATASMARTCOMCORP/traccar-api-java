@@ -101,3 +101,55 @@ func (b *DateBuilder) Date() time.Time {
 	}
 	return javatime.FromWall(wall, b.loc)
 }
+
+// CorrectDay is DateUtil.correctDay: guess moved a day back or forward when that is
+// closer to now (a device that reports only the time of day). zone is the server's zone,
+// where Java's Calendar adds the day.
+func CorrectDay(now, guess time.Time, zone *time.Location) time.Time {
+	return correctDate(now, guess, func(t time.Time, n int) time.Time { return addDays(t, n, zone) })
+}
+
+// CorrectYear is DateUtil.correctYear.
+func CorrectYear(now, guess time.Time, zone *time.Location) time.Time {
+	return correctDate(now, guess, func(t time.Time, n int) time.Time {
+		w := t.In(zone)
+		year, month, day := w.Year()+n, w.Month(), w.Day()
+		if last := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day(); day > last {
+			day = last // Calendar pins the day of month
+		}
+		wall := time.Date(year, month, day, w.Hour(), w.Minute(), w.Second(), w.Nanosecond(), time.UTC)
+		return javatime.FromWall(wall, zone)
+	})
+}
+
+func correctDate(now, guess time.Time, add func(time.Time, int) time.Time) time.Time {
+	switch {
+	case guess.After(now):
+		if previous := add(guess, -1); now.Sub(previous) < guess.Sub(now) {
+			return previous
+		}
+	case guess.Before(now):
+		if next := add(guess, 1); next.Sub(now) < now.Sub(guess) {
+			return next
+		}
+	}
+	return guess
+}
+
+// addDays is GregorianCalendar.add(DAY_OF_MONTH, n): the same wall time n days later,
+// keeping the old offset when the new one would move the date.
+func addDays(t time.Time, n int, zone *time.Location) time.Time {
+	w := t.In(zone)
+	_, offset := w.Zone()
+	wall := time.Date(w.Year(), w.Month(), w.Day()+n, w.Hour(), w.Minute(), w.Second(), w.Nanosecond(), time.UTC)
+	t1 := wall.Add(-time.Duration(offset) * time.Second)
+	_, offset2 := t1.In(zone).Zone()
+	if offset2 == offset {
+		return t1
+	}
+	t2 := t1.Add(time.Duration(offset-offset2) * time.Second)
+	if y, m, d := t2.In(zone).Date(); y == wall.Year() && m == wall.Month() && d == wall.Day() {
+		return t2
+	}
+	return t1
+}

@@ -28,6 +28,7 @@ import (
 
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/config"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/ingest"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/javatime"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/model"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/kit"
 )
@@ -177,6 +178,9 @@ func (e *Env) Device(_ context.Context, id int64) (*model.Device, error) {
 func (e *Env) Lookup(context.Context, int64, string, bool, bool) (any, error) { return nil, nil }
 
 func (e *Env) Send(_ string, data any) { e.Sent = append(e.Sent, data) }
+
+// Zone is the zone the Java tests ran in.
+func (e *Env) Zone() *time.Location { return javatime.TimeZone("America/Sao_Paulo") }
 
 // WriteMedia gives null, as the mocked MediaManager.
 func (e *Env) WriteMedia(string, string, []byte) string { return "" }

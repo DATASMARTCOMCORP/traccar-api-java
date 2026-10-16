@@ -51,3 +51,6 @@ func writeMedia(root, uniqueID, name string, data []byte) (string, error) {
 	}
 	return name, f.Close()
 }
+
+// Zone is the server's time zone.
+func (c *Conn) Zone() *time.Location { return c.p.st.Location() }

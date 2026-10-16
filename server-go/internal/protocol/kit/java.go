@@ -344,3 +344,43 @@ func IndexOfFrom(s, sub string, from int) int {
 	}
 	return from + i
 }
+
+// ParseBase64 is DataConverter.parseBase64 (commons-codec Base64.decodeBase64): standard
+// and URL-safe alphabets, padding optional, anything else skipped; trailing bits that
+// don't fill a byte are dropped.
+func ParseBase64(s string) []byte {
+	var out []byte
+	acc, bits := 0, 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		var v int
+		switch {
+		case c >= 'A' && c <= 'Z':
+			v = int(c - 'A')
+		case c >= 'a' && c <= 'z':
+			v = int(c-'a') + 26
+		case c >= '0' && c <= '9':
+			v = int(c-'0') + 52
+		case c == '+' || c == '-':
+			v = 62
+		case c == '/' || c == '_':
+			v = 63
+		case c == '=':
+			i = len(s) // padding ends the data
+			continue
+		default:
+			continue
+		}
+		acc = acc<<6 | v
+		bits += 6
+		if bits >= 8 {
+			bits -= 8
+			out = append(out, byte(acc>>bits))
+			acc &= 1<<bits - 1
+		}
+	}
+	if out == nil {
+		out = []byte{}
+	}
+	return out
+}

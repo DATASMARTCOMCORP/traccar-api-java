@@ -38,6 +38,8 @@ type Environment interface {
 	// WriteMedia is MediaManager.writeFile: it stores data as a file of the device and
 	// returns the file name, or "" (Java's null) when media isn't stored.
 	WriteMedia(uniqueID, extension string, data []byte) string
+	// Zone is the server's time zone (the JVM's default zone).
+	Zone() *time.Location
 }
 
 // Message is the context of one received message, what BaseProtocolDecoder gives a Java
@@ -300,4 +302,25 @@ func (m *Message) NewMediaBuffer() *kit.Buf {
 		panic(err)
 	}
 	return kit.NewBufMax(size)
+}
+
+// Zone is the server's time zone, Java's ZoneId.systemDefault().
+func (m *Message) Zone() *time.Location { return m.env.Zone() }
+
+// DevicePassword is AttributeUtil.getDevicePassword: the device's devicePassword
+// attribute, else <protocol>.devicePassword, else def.
+func (m *Message) DevicePassword(deviceID int64, protocol, def string) string {
+	switch v := m.lookup(deviceID, "devicePassword", false, false).(type) {
+	case nil:
+	case string:
+		return v
+	default:
+		panic(errJava) // ClassCastException
+	}
+	if protocol != "" {
+		if v, ok := m.Config().Lookup(protocol + ".devicePassword"); ok {
+			return v
+		}
+	}
+	return def
 }
