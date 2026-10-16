@@ -486,9 +486,12 @@ Intel's code, under GPLv2 only. It carries their notice. Bit-exact `Math.sin` an
 need this code. Before the Go server is distributed outside the company, decide whether that
 license fits.
 
-### Step 7 (protocols), in progress
+### Step 7 (protocols), 2026-10-16
 
-**Done: the toolkit, osmand, suntech (with the SIR fix), intellitrac, atrack (custom mode).**
+**Done: all 267 Java protocols are ported and registered** (`internal/protocol/all`, generated
+by `go generate`; `all_test.go` checks it against the Java protocol list). osmand, suntech
+(with the SIR fix), intellitrac and atrack (custom mode) came first; the rest followed in
+batches.
 
 - **Oracle.** `internal/protocol/oracle/testdata/java-vectors.jsonl.gz` records every call of the
   455 Java protocol tests: 3,105 decoder calls with their full output (every field, doubles as
@@ -505,10 +508,14 @@ license fits.
   fixed), TCP with per-connection pipelines, UDP, HTTP; queued commands sent when a device
   reports (`onMessageEvent`), live commands from the API on the device's connection
   (`sendDataCommand`: encoder, custom text or hex), media files.
-- **Gate:** `go test ./internal/protocol/...` replays every Java vector of the ported protocols
-  (osmand 15, suntech 83 + 5 frames + 1 command, intellitrac 17, atrack 32 + 7 frames), and
-  the `protocols` harness suite sends them over real TCP and UDP connections to both servers,
-  with queued and live commands: replies and every table match Java.
+- **Gate:** `go test ./internal/protocol/...` replays all 3,436 recorded calls: every recorded
+  Java test class (363 of the 381) has an `oracle.Run` in its package. The other 18 record
+  nothing: 16 frame decoder tests compare with plain `assertEquals`, and two are `@Disabled`
+  or have no calls. Their assertions are ported by hand (`oracle.FrameCases` or plain Go tests).
+  The `protocols` harness suite also sends the vectors of suntech, intellitrac, atrack (TCP and
+  UDP) and armoli over real connections to both servers, with queued and live commands, and
+  compares the replies and every table. The other protocols are checked at the decoder level
+  only, because each would need its own device-side framing in the harness.
 
 Findings:
 1. **Netty decodes `US_ASCII` one char per byte.** `ByteBuf.toString(US_ASCII)` and
@@ -535,6 +542,31 @@ Findings:
    buffer cumulation, so a frame that starts after other bytes can be cut differently. Devices
    send one frame per read in practice.
 
-Next: the other protocols, in batches that share frame decoders and helpers, each with its
-Java vectors and, for TCP/UDP ones, in the `protocols` suite.
+8. **Shared helpers grew with the ports.** `kit` now covers Jakarta JSON (Parsson's key order
+   and number semantics), `QueryStringDecoder`, a non-namespace-aware XML DOM, the media
+   buffer's Netty capacity growth, and Julian dates before 1582 (`GregorianCalendar`).
+   `model.Attributes` reads values as `ExtendedModel` does (`JavaInt`, `JavaLong`,
+   `JavaDouble`). `ingest` has MQTT, outbound clients and pollers, HTTP response headers, and
+   requests that are left unanswered.
+9. **Java quirks kept on purpose**, because the output must match. Some examples:
+   - StarLink stores a sensor's temperature as its humidity.
+   - Teltonika sets the LTE radio type on a `Network` it then discards.
+   - Tramigo parses an English month with the current year, then corrects the year.
+   - Wialon reads `cell_id` without removing it.
+   - Parser `hasNext` skips groups when it fails.
+
+   Each is commented where it happens.
+10. **Not ported, or only partly:**
+    - JT1078 video streaming (Java's `VideoStreamManager`) is not supported.
+    - Text (SMS) command encoders are ported but not wired: Granit, Totem, Wondex. The Go server
+      sends no SMS.
+    - A frame decoder on a UDP server exists only in mavlink2.
+    - xrb28 needs a Latin-1 `TextOut` workaround (see the package).
+    - `setModelOverride` is a test hook in Java; in Go it is a decoder field that the tests set.
+11. Checking that every recorded class is replayed found frame and encoder classes (its, totem,
+    radshid, t57, tek, tk103, tmg, json) that agents had assumed were unrecorded. They are
+    replayed now, and all pass.
+
+Next: Step 8. Before cutover, decide whether to extend the live `protocols` suite to the
+protocols the fleet uses (from production's `devices` table, read-only), beyond the four above.
 
