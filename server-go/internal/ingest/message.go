@@ -304,6 +304,16 @@ func (m *Message) NewMediaBuffer() *kit.Buf {
 	return kit.NewBufMax(size)
 }
 
+// NewSizedMediaBuffer is newMediaBuffer(size): a buffer of that initial capacity, growing
+// up to media.bufferSize.
+func (m *Message) NewSizedMediaBuffer(size int) *kit.MediaBuffer {
+	maxCapacity, err := m.Config().Int("media.bufferSize", 32*1024*1024)
+	if err != nil {
+		panic(err)
+	}
+	return kit.NewMediaBuffer(size, maxCapacity)
+}
+
 // Zone is the server's time zone, Java's ZoneId.systemDefault().
 func (m *Message) Zone() *time.Location { return m.env.Zone() }
 

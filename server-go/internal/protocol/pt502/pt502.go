@@ -158,53 +158,12 @@ const maxChunkSize = 960
 
 // Decoder is Pt502ProtocolDecoder with the connection's photo in progress.
 type Decoder struct {
-	photo *photo
-}
-
-// photo is the media buffer: newMediaBuffer(size) has that capacity (it grows as Netty's
-// buffers do when more arrives), and the photo is complete when nothing is writable.
-type photo struct {
-	data        []byte
-	capacity    int
-	maxCapacity int
-}
-
-func (p *photo) write(b []byte) {
-	need := len(p.data) + len(b)
-	if need > p.maxCapacity {
-		kit.Throw("IndexOutOfBoundsException: writerIndex(%d) + minWritableBytes(%d) exceeds maxCapacity(%d)", len(p.data), len(b), p.maxCapacity)
-	}
-	if need > p.capacity {
-		p.capacity = nettyCapacity(need, p.maxCapacity)
-	}
-	p.data = append(p.data, b...)
-}
-
-func (p *photo) writable() int { return p.capacity - len(p.data) }
-
-// nettyCapacity is AbstractByteBufAllocator.calculateNewCapacity.
-func nettyCapacity(minimum, maximum int) int {
-	const threshold = 4 * 1024 * 1024
-	if minimum == threshold {
-		return threshold
-	}
-	if minimum > threshold {
-		c := minimum / threshold * threshold
-		if c > maximum-threshold {
-			return maximum
-		}
-		return c + threshold
-	}
-	c := 64
-	for c < minimum {
-		c <<= 1
-	}
-	return min(c, maximum)
+	photo *kit.MediaBuffer
 }
 
 func (d *Decoder) requestPhotoFragment(m *ingest.Message) {
 	if m.HasChannel() {
-		m.Send("#PHD" + strconv.Itoa(len(d.photo.data)) + "," + strconv.Itoa(min(d.photo.writable(), maxChunkSize)) + "\r\n")
+		m.Send("#PHD" + strconv.Itoa(len(d.photo.Data)) + "," + strconv.Itoa(min(d.photo.Writable(), maxChunkSize)) + "\r\n")
 	}
 }
 
@@ -218,8 +177,8 @@ func (d *Decoder) Decode(m *ingest.Message, msg any) any {
 		if d.photo == nil {
 			return nil
 		}
-		d.photo.write(buf.ReadBytes(buf.ReadableBytes()))
-		if d.photo.writable() > 0 {
+		d.photo.Write(buf.ReadBytes(buf.ReadableBytes()))
+		if d.photo.Writable() > 0 {
 			d.requestPhotoFragment(m)
 			return nil
 		}
@@ -230,7 +189,7 @@ func (d *Decoder) Decode(m *ingest.Message, msg any) any {
 		pos := m.NewPosition()
 		pos.DeviceID = ds.DeviceID
 		m.LastLocation(pos, nil)
-		image := m.WriteMedia(ds.UniqueID, "jpg", d.photo.data)
+		image := m.WriteMedia(ds.UniqueID, "jpg", d.photo.Data)
 		d.photo = nil
 		pos.Set(model.KeyImage, image)
 		return pos
@@ -239,11 +198,7 @@ func (d *Decoder) Decode(m *ingest.Message, msg any) any {
 	if strings.HasPrefix(typ, "$PHO") {
 		size := kit.Int(kit.SubstringFrom(kit.Split(typ, "-")[0], 4))
 		if size > 0 {
-			maxCapacity, err := m.Config().Int("media.bufferSize", 32*1024*1024)
-			if err != nil {
-				panic(err)
-			}
-			d.photo = &photo{capacity: size, maxCapacity: maxCapacity}
+			d.photo = m.NewSizedMediaBuffer(size)
 			d.requestPhotoFragment(m)
 		}
 	}
