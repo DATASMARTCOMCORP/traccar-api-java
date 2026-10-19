@@ -3,14 +3,18 @@ package notify
 import (
 	"bytes"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"mime"
+	"mime/multipart"
 	"mime/quotedprintable"
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"os"
 	"strconv"
 	"strings"
@@ -132,14 +136,17 @@ func isTrue(b *bool) bool { return b != nil && *b }
 
 // send is MailManager.sendMessage: the user's own SMTP settings unless ignored, else the
 // server's (for system mail, or unless mail.smtp.systemOnly). counted is called before
-// connecting (StatisticsManager.registerMail).
-func (m *mailer) send(u *model.User, system bool, subject *string, body string, counted func()) error {
+// connecting (StatisticsManager.registerMail). att, when set, is attached.
+func (m *mailer) send(u *model.User, system bool, subject *string, body string, att *attachment, counted func()) error {
 	if m.debug {
-		s := "null"
+		s, name := "null", "null"
 		if subject != nil {
 			s = *subject
 		}
-		m.log.Info(fmt.Sprintf("Email sent\nTo: %s\nSubject: %s\nAttachment: null\nBody:\n%s", u.Email, s, body))
+		if att != nil {
+			name = att.name
+		}
+		m.log.Info(fmt.Sprintf("Email sent\nTo: %s\nSubject: %s\nAttachment: %s\nBody:\n%s", u.Email, s, name, body))
 		return nil
 	}
 	var s *smtpSettings
@@ -152,7 +159,7 @@ func (m *mailer) send(u *model.User, system bool, subject *string, body string, 
 	if s == nil {
 		return errors.New("No SMTP configuration found")
 	}
-	msg, from, err := buildMessage(s, u.Email, subject, body)
+	msg, from, err := buildMessage(s, u.Email, subject, body, att)
 	if err != nil {
 		return err
 	}
@@ -162,9 +169,15 @@ func (m *mailer) send(u *model.User, system bool, subject *string, body string, 
 	return m.deliver(s, from, u.Email, msg)
 }
 
+// attachment is a file attached to a mail, as application/octet-stream.
+type attachment struct {
+	name string
+	data []byte
+}
+
 // buildMessage is the MimeMessage: From (with its name), To, Subject (when set), Date and
-// an HTML body in UTF-8.
-func buildMessage(s *smtpSettings, to string, subject *string, body string) ([]byte, string, error) {
+// an HTML body in UTF-8; with an attachment, a multipart/mixed of the body and the file.
+func buildMessage(s *smtpSettings, to string, subject *string, body string, att *attachment) ([]byte, string, error) {
 	var from string
 	var fromHeader string
 	if s.from != nil {
@@ -194,15 +207,57 @@ func buildMessage(s *smtpSettings, to string, subject *string, body string) ([]b
 		fmt.Fprintf(&b, "Subject: %s\r\n", mime.QEncoding.Encode("UTF-8", *subject))
 	}
 	fmt.Fprintf(&b, "Date: %s\r\n", time.Now().Format(time.RFC1123Z))
-	b.WriteString("MIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n")
-	w := quotedprintable.NewWriter(&b)
+	b.WriteString("MIME-Version: 1.0\r\n")
+	if att == nil {
+		if err := writeBody(&b, body); err != nil {
+			return nil, "", err
+		}
+		return b.Bytes(), from, nil
+	}
+	mw := multipart.NewWriter(&b)
+	fmt.Fprintf(&b, "Content-Type: multipart/mixed; boundary=%q\r\n\r\n", mw.Boundary())
+	part, err := mw.CreatePart(textproto.MIMEHeader{
+		"Content-Type":              {"text/html; charset=utf-8"},
+		"Content-Transfer-Encoding": {"quoted-printable"},
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	w := quotedprintable.NewWriter(part)
 	if _, err := w.Write([]byte(body)); err != nil {
 		return nil, "", err
 	}
 	if err := w.Close(); err != nil {
 		return nil, "", err
 	}
+	part, err = mw.CreatePart(textproto.MIMEHeader{
+		"Content-Type":              {"application/octet-stream; name=" + strconv.Quote(att.name)},
+		"Content-Transfer-Encoding": {"base64"},
+		"Content-Disposition":       {"attachment; filename=" + strconv.Quote(att.name)},
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	enc := base64.StdEncoding.EncodeToString(att.data)
+	for len(enc) > 76 {
+		io.WriteString(part, enc[:76]+"\r\n")
+		enc = enc[76:]
+	}
+	io.WriteString(part, enc+"\r\n")
+	if err := mw.Close(); err != nil {
+		return nil, "", err
+	}
 	return b.Bytes(), from, nil
+}
+
+// writeBody writes the headers and quoted-printable text of an HTML body.
+func writeBody(b *bytes.Buffer, body string) error {
+	b.WriteString("Content-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n")
+	w := quotedprintable.NewWriter(b)
+	if _, err := w.Write([]byte(body)); err != nil {
+		return err
+	}
+	return w.Close()
 }
 
 // deliver talks SMTP: TLS from the start for smtps or mail.smtp.ssl.enable, STARTTLS when

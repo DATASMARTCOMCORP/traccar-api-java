@@ -125,6 +125,7 @@ func run(ctx context.Context, args []string, stderr io.Writer) error {
 		return err
 	}
 	apiOpts.Ingest = proc
+	apiOpts.MailReport = notifier.MailReport
 	port, err := cfg.Int(config.WebPort, config.DefaultWebPort)
 	if err != nil {
 		return err

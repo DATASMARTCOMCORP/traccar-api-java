@@ -149,6 +149,25 @@ func reportsSuite() suite {
 		get("admin", "/api/reports/summary?deviceId=${car}&from=2026-10-05T00:00:00Z&to=2026-10-06T00:00:00Z").header("Accept", "*/*"),
 		get("admin", "/api/audit?from=2000-01-01T00:00:00Z&to=2100-01-01T00:00:00Z"),
 	)
+	// Excel: the workbooks' contents (sheets, cells, styles, links) are compared.
+	xl := func(actor, path string) Step { return get(actor, path).header("Accept", excelType).xlsx() }
+	for _, kind := range []string{"route", "events", "summary", "trips", "stops"} {
+		steps = append(steps,
+			xl("admin", "/api/reports/"+kind+"?deviceId=${car}&from=2026-10-05T00:00:00Z&to=2026-10-07T00:00:00Z"),
+			xl("admin", "/api/reports/"+kind+"/xlsx?groupId=${fleet}&from=2026-10-05T00:00:00Z&to=2026-10-07T00:00:00Z").unordered("$"),
+			xl("partial", "/api/reports/"+kind+"/xlsx?deviceId=${car}&from=2026-10-01T00:00:00Z&to=2026-10-02T00:00:00Z"),
+		)
+	}
+	steps = append(steps,
+		xl("admin", "/api/reports/summary/xlsx?deviceId=${car}&daily=true&from=2026-10-05T00:00:00Z&to=2026-10-07T00:00:00Z"),
+		xl("admin", "/api/reports/devices/xlsx"),
+		xl("partial", "/api/reports/devices/xlsx"),
+		xl("admin", "/api/reports/route?deviceId=${car}&from=2026-10-05T00:00:00Z&to=2026-10-07T00:00:00Z&mail=true"),
+		xl("admin", "/api/reports/devices/mail"),
+		xl("admin", "/api/reports/events/xlsx?deviceId=${car}&from=2026-08-01T00:00:00Z&to=2026-10-06T00:00:00Z"),
+		xl("admin", "/api/reports/trips/xlsx?deviceId=${car}&from=2026-10-05T00:00:00Z"),
+		xl("admin", "/api/reports/route/csv?deviceId=${car}&from=2026-10-05T00:00:00Z&to=2026-10-07T00:00:00Z"),
+	)
 	return suite{seed: seed, strictSeed: true, config: config, scenarios: []Scenario{
 		{Name: "reports-json", Steps: steps},
 	}}

@@ -1,6 +1,9 @@
 package velocity
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // The cases are what Velocity 2.4.1 printed for the same templates and values.
 func TestJavaSemantics(t *testing.T) {
@@ -45,5 +48,20 @@ func TestDecimalAndHTML(t *testing.T) {
 	}
 	if got := EscapeHTML(`<a href="x">Caminhão & 'y' €</a>`); got != `&lt;a href=&quot;x&quot;&gt;Caminh&atilde;o &amp; 'y' &euro;&lt;/a&gt;` {
 		t.Errorf("escape: %q", got)
+	}
+}
+
+func TestWeekYear(t *testing.T) {
+	for _, c := range []struct {
+		date string
+		want string
+	}{
+		{"2026-12-26", "2026"}, {"2026-12-27", "2027"}, {"2026-12-31", "2027"}, {"2027-01-01", "2027"},
+		{"2021-12-25", "2021"}, {"2021-12-26", "2022"}, {"2022-01-01", "2022"},
+	} {
+		d, _ := time.Parse("2006-01-02", c.date)
+		if got, _ := FormatDate("YYYY", d); got != c.want {
+			t.Errorf("%s: %s, want %s", c.date, got, c.want)
+		}
 	}
 }

@@ -54,6 +54,8 @@ type Options struct {
 
 	// Reports computes /api/reports (nil: the report endpoints fail).
 	Reports *reports.Reports
+	// MailReport mails a workbook to the user (ReportMailer); nil: mailed reports are lost.
+	MailReport func(u *model.User, data []byte) error
 
 	// Live is the hub of /api/socket; nil disables the socket.
 	Live *live.Hub

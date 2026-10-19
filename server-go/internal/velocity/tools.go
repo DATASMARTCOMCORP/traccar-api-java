@@ -95,7 +95,7 @@ func toDate(v any) (int64, bool) {
 	return 0, false
 }
 
-// FormatDate is SimpleDateFormat.format in English for the numeric fields (y M d H h
+// FormatDate is SimpleDateFormat.format in English for the numeric fields (y Y M d H h
 // k K m s S), am/pm (a), day and month names (E, MMM, MMMM) and quoted text.
 func FormatDate(pattern string, t time.Time) (string, error) {
 	var b strings.Builder
@@ -138,6 +138,14 @@ func FormatDate(pattern string, t time.Time) (string, error) {
 				num(t.Year() % 100)
 			} else {
 				num(t.Year())
+			}
+		case 'Y':
+			// The week year (en_US: weeks start on Sunday, week 1 holds January 1), the
+			// classic surprise of "YYYY" in late December.
+			if n == 2 {
+				num(weekYear(t) % 100)
+			} else {
+				num(weekYear(t))
 			}
 		case 'M':
 			switch {
@@ -310,4 +318,17 @@ func unquote(s string) string {
 		b.WriteByte(s[i])
 	}
 	return b.String()
+}
+
+// weekYear is GregorianCalendar's week year in en_US: the days from the Sunday that starts
+// the week holding next January 1 belong to next year.
+func weekYear(t time.Time) int {
+	y := t.Year()
+	jan1 := time.Date(y+1, time.January, 1, 0, 0, 0, 0, t.Location())
+	weekStart := jan1.AddDate(0, 0, -int(jan1.Weekday()))
+	day := time.Date(y, t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+	if !day.Before(weekStart) {
+		return y + 1
+	}
+	return y
 }

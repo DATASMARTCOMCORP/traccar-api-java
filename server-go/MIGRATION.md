@@ -196,7 +196,7 @@ Each step ends with a **gate**: its exit criteria must pass before the next step
 ### Step 9: Notifications, reports, forwarding, scheduled jobs
 - Notificators: web, mail, sms (HTTP), command, firebase. Templates converted
   from Velocity `.vm` to `text/template` for all 10 languages.
-- Reports: route, events, trips, stops, summary, combined, scheduled reports. Excel export with `excelize`.
+- Reports: route, events, trips, stops, summary, combined, scheduled reports. Excel export fills the `templates/export` JXLS templates (see Step 9 notes).
 - Forwarders: `event.forward` JSON webhook, plus any others found in Step 0.
 - Geocoder: pluscodes.
 - Computed attributes: JEXL becomes `expr-lang/expr`, with a translation and audit of stored expressions.
@@ -627,7 +627,7 @@ devices. There are three options:
 - enable a broadcast service in Java and Go (Java's multicast or Redis);
 - accept polling until the API moves.
 
-### Step 9 (notifications, forwarding), in progress
+### Step 9 (notifications, forwarding, reports), in progress
 
 **Done:** what happens to a stored event (`NotificationManager`), its texts, and the
 plus-codes geocoder. The `notify` harness suite gives each side an HTTP and an SMTP sink. It
@@ -677,8 +677,34 @@ Findings:
    so are that handler's later events for the position. Go reproduces the order and the abort.
 6. **Mail is sent synchronously** on the processing thread in Java, and in Go.
 
+**Reports (done):** `internal/reports` ports the providers. The `reports` and
+`reports-legacy` harness suites (new and legacy trip logic) seed three drives and compare
+every report, as JSON and as Excel, Java vs Go.
+- **Trips and stops** come from stored motion events when the period exceeds
+  `report.fastThreshold`, and otherwise from replaying the motion logic over the positions
+  (`internal/motion`, shared with processing). Daily summaries split at midnight in the
+  user's time zone, as `ZonedDateTime` does.
+- **Device order.** `DeviceUtil.getAccessibleDevices` returns a `HashSet` of devices hashed
+  by identity, so Java's order over several devices changes from run to run. Go keeps the
+  user's device order, and the harness compares multi-device reports as multisets (sheets
+  as a set, rows as a multiset).
+- **Excel (`internal/xlsx`)** runs the JXLS templates from `templates.root` at runtime, for
+  the same reason as the Velocity templates: a deployed template edit must keep working. It
+  implements what the templates use:
+  - `jx:area` and `jx:each` in cell comments, with `multisheet` (one sheet per device, the
+    template sheet dropped);
+  - a JEXL subset (property and getter access, map indexing, the ternary, comparisons, Java
+    arithmetic, `"".format` through `kit.Format`, `replaceAll`, `DateTool.format` with the
+    week year `YYYY` the templates use, `util.hyperlink`);
+  - cell types as POI writes them (booleans, numbers, shared strings, blank on null) and
+    external hyperlinks.
+  The harness compares sheets, cells (type, value, style), merges and hyperlinks, and Apache
+  POI opens Go's workbooks. `/mail` and `mail=true` answer 204 and mail the workbook as
+  `report.xlsx`, as `ReportMailer` does. Errors inside an Excel method carry the Excel media
+  type, as Java's do.
+
 Not done yet in Step 9:
-- reports;
+- position exports (`/api/positions/{kml,kmz,csv,gpx}`);
 - scheduled tasks;
 - `/api/notifications/test`, password-reset mail;
 - the firebase, traccar, telegram, whatsapp and pushover notificators (production's types

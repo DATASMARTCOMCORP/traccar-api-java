@@ -54,7 +54,8 @@ type Step struct {
 	Save      map[string]string // var name → JSON path ("id", "0.id") or "$body" for the raw body
 	Opaque    []string          // JSON paths compared by shape only (random by design), or "$body"
 	Unordered []string          // JSON paths of arrays compared as multisets (Java HashSet order)
-	Binary    bool              // non-JSON 2xx body (xlsx...): compare status and headers only
+	Binary    bool              // non-JSON 2xx body: compare status and headers only
+	XLSX      bool              // xlsx body: compare the workbooks' contents (see xlsxdiff)
 	CSV       bool              // CSV body: compare by column name (Java's column order varies)
 	Token     bool              // 2xx body is a bearer token: alias its random id on both sides
 	// Cross expands ${vars} with the other side's variables: A sends what B produced and
@@ -517,6 +518,8 @@ func compareResponses(s Step, a, b *response, aliasA, aliasB map[string]string) 
 		if (len(a.body) == 0) != (len(b.body) == 0) {
 			out = append(out, fmt.Sprintf("body shape: A=%d bytes B=%d bytes", len(a.body), len(b.body)))
 		}
+	case s.XLSX:
+		out = append(out, diffXLSX(a.body, b.body, len(s.Unordered) > 0)...)
 	case s.Binary:
 	case s.CSV:
 		out = append(out, diffCSV(a.body, b.body)...)

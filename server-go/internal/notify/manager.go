@@ -23,6 +23,7 @@ type Manager struct {
 	log       *slog.Logger
 	format    *Formatter
 	forwarder *forwarder // nil without event.forward.url
+	mail      *mailer
 
 	types            map[string]bool // notificator.types
 	notificators     map[string]notificator
@@ -92,6 +93,7 @@ func NewManager(cfg *config.Config, st *store.Store, hub *live.Hub, log *slog.Lo
 	if err != nil {
 		return nil, err
 	}
+	m.mail = mail
 	sms, err := newSMSClient(cfg)
 	if err != nil {
 		return nil, err
@@ -108,6 +110,13 @@ func NewManager(cfg *config.Config, st *store.Store, hub *live.Hub, log *slog.Lo
 		}
 	}
 	return m, nil
+}
+
+// MailReport is ReportMailer.sendAsync's mail: the workbook attached as report.xlsx.
+func (m *Manager) MailReport(u *model.User, data []byte) error {
+	subject := "Report"
+	return m.mail.send(u, false, &subject, "The report is in the attachment.",
+		&attachment{"report.xlsx", data}, func() { m.count(m.Hooks.MailSent) })
 }
 
 func (m *Manager) count(f func()) {

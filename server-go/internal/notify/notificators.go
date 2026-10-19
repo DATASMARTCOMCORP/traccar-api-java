@@ -49,7 +49,7 @@ func (n *mailNotificator) send(_ context.Context, in Input) error {
 	if err != nil {
 		return err
 	}
-	return n.mail.send(in.User, false, m.Subject, m.Body, n.sent)
+	return n.mail.send(in.User, false, m.Subject, m.Body, nil, n.sent)
 }
 
 // smsNotificator is NotificatorSms: the digest to the user's phone, if any.

@@ -394,8 +394,12 @@ func (s Step) opaque(paths ...string) Step {
 	return s
 }
 func (s Step) binary() Step { s.Binary = true; return s }
-func (s Step) csv() Step    { s.CSV = true; return s }
-func (s Step) token() Step  { s.Token = true; return s }
+func (s Step) xlsx() Step   { s.XLSX = true; return s }
+
+const excelType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+func (s Step) csv() Step   { s.CSV = true; return s }
+func (s Step) token() Step { s.Token = true; return s }
 
 func (s Step) unordered(paths ...string) Step {
 	s.Unordered = append(s.Unordered, paths...)
