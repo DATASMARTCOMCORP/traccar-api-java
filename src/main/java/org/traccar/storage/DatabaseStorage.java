@@ -23,6 +23,7 @@ import org.traccar.model.Device;
 import org.traccar.model.Group;
 import org.traccar.model.GroupedModel;
 import org.traccar.model.Permission;
+import org.traccar.model.Position;
 import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Order;
@@ -30,7 +31,11 @@ import org.traccar.storage.query.Request;
 
 import jakarta.inject.Inject;
 import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Collections;
@@ -130,6 +135,131 @@ public class DatabaseStorage extends Storage {
                         "Generated key count " + ids.size() + " does not match batch size " + entities.size());
             }
             return ids;
+        } catch (SQLException e) {
+            throw new StorageException(e);
+        }
+    }
+
+    private static final String UNIQUE_VIOLATION = "23505";
+
+    @Override
+    public StoredPosition addPosition(Position position, String eventId) throws StorageException {
+        List<String> columns = new Columns.Exclude("id").getColumns(Position.class, "get");
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                long positionId;
+                try (QueryBuilder builder = QueryBuilder.create(
+                        config, connection, objectMapper, formatInsert(Position.class, columns), true)) {
+                    builder.setObject(position, columns);
+                    positionId = builder.executeUpdate();
+                }
+                try (PreparedStatement statement = connection.prepareStatement(
+                        "INSERT INTO tc_position_receipts (deviceid, eventid, positionid, fixtime)"
+                                + " VALUES (?, ?, ?, ?)")) {
+                    statement.setLong(1, position.getDeviceId());
+                    statement.setString(2, eventId);
+                    statement.setLong(3, positionId);
+                    statement.setTimestamp(4, new Timestamp(position.getFixTime().getTime()));
+                    statement.executeUpdate();
+                }
+                connection.commit();
+                return new StoredPosition(positionId, false);
+            } catch (SQLException e) {
+                connection.rollback();
+                if (UNIQUE_VIOLATION.equals(e.getSQLState())) {
+                    long existing = getReceipt(position.getDeviceId(), eventId);
+                    if (existing != 0) {
+                        return new StoredPosition(existing, true);
+                    }
+                }
+                throw e;
+            } finally {
+                connection.setAutoCommit(true);
+            }
+        } catch (SQLException e) {
+            throw new StorageException(e);
+        }
+    }
+
+    @Override
+    public long getReceipt(long deviceId, String eventId) throws StorageException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT positionid FROM tc_position_receipts WHERE deviceid = ? AND eventid = ?")) {
+            statement.setLong(1, deviceId);
+            statement.setString(2, eventId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next() ? resultSet.getLong(1) : 0;
+            }
+        } catch (SQLException e) {
+            throw new StorageException(e);
+        }
+    }
+
+    @Override
+    public void removeReceipts(Date fixTime) throws StorageException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "DELETE FROM tc_position_receipts WHERE fixtime < ?")) {
+            statement.setTimestamp(1, new Timestamp(fixTime.getTime()));
+            statement.executeUpdate();
+        } catch (SQLException e) {
+            throw new StorageException(e);
+        }
+    }
+
+    @Override
+    public boolean updateLatestPosition(long deviceId, long positionId, Date fixTime) throws StorageException {
+        String lockDevice = databaseType.equals("Microsoft SQL Server")
+                ? "SELECT positionid FROM tc_devices WITH (UPDLOCK, ROWLOCK) WHERE id = ?"
+                : "SELECT positionid FROM tc_devices WHERE id = ? FOR UPDATE";
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                // The row lock orders concurrent updates of one device. Each later statement sees the positions
+                // committed by whoever held the lock before, so the newest position always wins.
+                long currentId;
+                try (PreparedStatement statement = connection.prepareStatement(lockDevice)) {
+                    statement.setLong(1, deviceId);
+                    try (ResultSet resultSet = statement.executeQuery()) {
+                        if (!resultSet.next()) {
+                            connection.rollback();
+                            return false;
+                        }
+                        currentId = resultSet.getLong(1);
+                    }
+                }
+                if (currentId != 0 && currentId != positionId) {
+                    try (PreparedStatement statement = connection.prepareStatement(
+                            "SELECT 1 FROM tc_positions WHERE id = ? AND (fixtime > ? OR (fixtime = ? AND id > ?))")) {
+                        Timestamp timestamp = new Timestamp(fixTime.getTime());
+                        statement.setLong(1, currentId);
+                        statement.setTimestamp(2, timestamp);
+                        statement.setTimestamp(3, timestamp);
+                        statement.setLong(4, positionId);
+                        try (ResultSet resultSet = statement.executeQuery()) {
+                            if (resultSet.next()) {
+                                connection.rollback();
+                                return false;
+                            }
+                        }
+                    }
+                }
+                try (PreparedStatement statement = connection.prepareStatement(
+                        "UPDATE tc_devices SET positionid = ? WHERE id = ?")) {
+                    statement.setLong(1, positionId);
+                    statement.setLong(2, deviceId);
+                    statement.executeUpdate();
+                }
+                connection.commit();
+                return true;
+            } catch (SQLException e) {
+                connection.rollback();
+                throw e;
+            } finally {
+                connection.setAutoCommit(true);
+            }
         } catch (SQLException e) {
             throw new StorageException(e);
         }

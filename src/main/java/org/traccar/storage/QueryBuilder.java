@@ -58,17 +58,25 @@ public final class QueryBuilder implements AutoCloseable {
     private final PreparedStatement statement;
     private final String query;
     private final boolean returnGeneratedKeys;
+    private final boolean ownsConnection;
 
     private boolean streamingTransaction;
 
     private QueryBuilder(
             Config config, DataSource dataSource, ObjectMapper objectMapper,
             String query, boolean returnGeneratedKeys) throws SQLException {
+        this(config, dataSource.getConnection(), true, objectMapper, query, returnGeneratedKeys);
+    }
+
+    private QueryBuilder(
+            Config config, Connection connection, boolean ownsConnection, ObjectMapper objectMapper,
+            String query, boolean returnGeneratedKeys) throws SQLException {
         this.config = config;
         this.objectMapper = objectMapper;
         this.query = query;
         this.returnGeneratedKeys = returnGeneratedKeys;
-        connection = dataSource.getConnection();
+        this.connection = connection;
+        this.ownsConnection = ownsConnection;
         try {
             if (returnGeneratedKeys) {
                 statement = connection.prepareStatement(query, Statement.RETURN_GENERATED_KEYS);
@@ -76,9 +84,21 @@ public final class QueryBuilder implements AutoCloseable {
                 statement = connection.prepareStatement(query);
             }
         } catch (SQLException error) {
-            connection.close();
+            if (ownsConnection) {
+                connection.close();
+            }
             throw error;
         }
+    }
+
+    /**
+     * Builds a statement on a connection the caller owns, for example one in a transaction. Closing the builder
+     * closes the statement only.
+     */
+    public static QueryBuilder create(
+            Config config, Connection connection, ObjectMapper objectMapper, String query,
+            boolean returnGeneratedKeys) throws SQLException {
+        return new QueryBuilder(config, connection, false, objectMapper, query, returnGeneratedKeys);
     }
 
     public static QueryBuilder create(
@@ -327,7 +347,9 @@ public final class QueryBuilder implements AutoCloseable {
                     connection.setAutoCommit(true);
                 }
             } finally {
-                connection.close();
+                if (ownsConnection) {
+                    connection.close();
+                }
             }
         }
     }

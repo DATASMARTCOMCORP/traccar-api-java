@@ -18,9 +18,13 @@ package org.traccar.handler;
 import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.traccar.database.IngestOutcome;
 import org.traccar.database.PositionBatchWriter;
 import org.traccar.database.StatisticsManager;
 import org.traccar.model.Position;
+import org.traccar.storage.Storage;
+import org.traccar.storage.StorageException;
+import org.traccar.storage.StoredPosition;
 
 public class DatabaseHandler extends BasePositionHandler {
 
@@ -28,24 +32,55 @@ public class DatabaseHandler extends BasePositionHandler {
 
     private final PositionBatchWriter batchWriter;
     private final StatisticsManager statisticsManager;
+    private final Storage storage;
 
     @Inject
-    public DatabaseHandler(PositionBatchWriter batchWriter, StatisticsManager statisticsManager) {
+    public DatabaseHandler(PositionBatchWriter batchWriter, StatisticsManager statisticsManager, Storage storage) {
         this.batchWriter = batchWriter;
         this.statisticsManager = statisticsManager;
+        this.storage = storage;
     }
 
     @Override
     public void onPosition(Position position, Callback callback) {
+        var ticket = position.getIngestTicket();
+        if (ticket != null) {
+            try {
+                StoredPosition stored = storage.addPosition(position, ticket.getEventId());
+                if (stored.duplicate()) {
+                    ticket.complete(IngestOutcome.duplicate(stored.positionId()));
+                    callback.processed(true);
+                } else {
+                    stored(position, stored.positionId());
+                    callback.processed(false);
+                }
+            } catch (StorageException error) {
+                failed(position, error, callback);
+            }
+            return;
+        }
         batchWriter.submit(position).whenComplete((id, error) -> {
             if (error == null) {
-                position.setId(id);
-                statisticsManager.registerMessageStored(position.getDeviceId(), position.getProtocol());
+                stored(position, id);
+                callback.processed(false);
             } else {
-                LOGGER.warn("Failed to store position", error);
+                failed(position, error, callback);
             }
-            callback.processed(false);
         });
+    }
+
+    private void stored(Position position, long id) {
+        position.setId(id);
+        statisticsManager.registerMessageStored(position.getDeviceId(), position.getProtocol());
+    }
+
+    // A position that is not stored must not produce events or become the device's latest position.
+    private void failed(Position position, Throwable error, Callback callback) {
+        LOGGER.warn("Failed to store position", error);
+        if (position.getIngestTicket() != null) {
+            position.getIngestTicket().complete(IngestOutcome.failed("storage"));
+        }
+        callback.processed(true);
     }
 
 }

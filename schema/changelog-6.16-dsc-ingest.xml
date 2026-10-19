@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+  xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                      http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.4.xsd"
+  logicalFilePath="changelog-6.16-dsc-ingest">
+
+  <!--
+    One row per stored report, keyed by the report's stable id. Written in the same transaction as the
+    tc_positions row, so a redelivered report is recognized instead of stored twice. positionid has no
+    foreign key because tc_positions may be a TimescaleDB hypertable without a primary key.
+  -->
+  <changeSet author="dsc-trackhub" id="changelog-6.16-dsc-ingest">
+
+    <createTable tableName="tc_position_receipts">
+      <column name="deviceid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="eventid" type="VARCHAR(128)">
+        <constraints nullable="false" />
+      </column>
+      <column name="positionid" type="BIGINT">
+        <constraints nullable="false" />
+      </column>
+      <column name="fixtime" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+    </createTable>
+
+    <addPrimaryKey tableName="tc_position_receipts" columnNames="deviceid, eventid"
+                   constraintName="pk_position_receipts" />
+
+    <addForeignKeyConstraint baseTableName="tc_position_receipts" baseColumnNames="deviceid"
+                             constraintName="fk_position_receipts_deviceid"
+                             referencedTableName="tc_devices" referencedColumnNames="id" onDelete="CASCADE" />
+
+    <createIndex tableName="tc_position_receipts" indexName="idx_position_receipts_fixtime">
+      <column name="fixtime" />
+    </createIndex>
+
+  </changeSet>
+
+</databaseChangeLog>

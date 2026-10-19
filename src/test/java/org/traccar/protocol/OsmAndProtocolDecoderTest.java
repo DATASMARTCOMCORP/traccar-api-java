@@ -5,19 +5,48 @@ import io.netty.handler.codec.http.ReadOnlyHttpHeaders;
 import org.junit.jupiter.api.Test;
 import org.traccar.ProtocolTest;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+
 public class OsmAndProtocolDecoderTest extends ProtocolTest {
 
     @Test
     public void testDecodeBatch() throws Exception {
         var decoder = inject(new OsmAndProtocolDecoder(null));
+        long now = System.currentTimeMillis() / 1000;
         verifyPositions(decoder, request(HttpMethod.POST, "/api/positions/batch",
                 new ReadOnlyHttpHeaders(true, "Content-Type", "application/json"), buffer(
                 """
                 {"deviceId":"123456","positions":[
-                  {"timestamp":1700000010,"lat":60.1,"lon":30.1},
-                  {"timestamp":1700000000,"lat":60.0,"lon":30.0}
+                  {"timestamp":%d,"lat":60.1,"lon":30.1},
+                  {"timestamp":%d,"lat":60.0,"lon":30.0}
                 ]}
+                """.formatted(now - 10, now - 20))));
+    }
+
+    @Test
+    public void testDecodeBatchRejectsOldFixes() throws Exception {
+        var decoder = inject(new OsmAndProtocolDecoder(null));
+        verifyNull(decoder, request(HttpMethod.POST, "/api/positions/batch",
+                new ReadOnlyHttpHeaders(true, "Content-Type", "application/json"), buffer(
+                """
+                {"deviceId":"123456","positions":[{"timestamp":1700000000,"lat":60.1,"lon":30.1}]}
                 """)));
+    }
+
+    @Test
+    public void testDecodeQueryReportIdentity() throws Exception {
+        var decoder = inject(new OsmAndProtocolDecoder(null));
+        var position = (org.traccar.model.Position) decoder.decode(null, null, request(
+                "/?id=123456&timestamp=1700000000&lat=60.0&lon=30.0&reportId=r-1"));
+        assertEquals("r-1", position.getIngestTicket().getEventId());
+        assertNull(position.getAttributes().get("reportId"));
+        position = (org.traccar.model.Position) decoder.decode(null, null, request(
+                "/?id=123456&timestamp=1700000000&lat=60.0&lon=30.0"));
+        assertEquals("fix:1700000000000:60.0:30.0", position.getIngestTicket().getEventId());
+        position = (org.traccar.model.Position) decoder.decode(null, null, request(
+                "/?id=123456&lat=60.0&lon=30.0"));
+        assertNull(position.getIngestTicket(), "a fix without its own time has no stable identity");
     }
 
     @Test

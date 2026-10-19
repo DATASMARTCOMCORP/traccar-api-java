@@ -19,15 +19,11 @@ import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.traccar.helper.model.PositionUtil;
-import org.traccar.model.Device;
 import org.traccar.model.Position;
 import org.traccar.session.ConnectionManager;
 import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.Storage;
 import org.traccar.storage.StorageException;
-import org.traccar.storage.query.Columns;
-import org.traccar.storage.query.Condition;
-import org.traccar.storage.query.Request;
 
 public class PostProcessHandler extends BasePositionHandler {
 
@@ -47,14 +43,10 @@ public class PostProcessHandler extends BasePositionHandler {
     @Override
     public void onPosition(Position position, Callback callback) {
         try {
-            if (PositionUtil.isLatest(cacheManager, position)) {
-                Device updatedDevice = new Device();
-                updatedDevice.setId(position.getDeviceId());
-                updatedDevice.setPositionId(position.getId());
-                storage.updateObject(updatedDevice, new Request(
-                        new Columns.Include("positionId"),
-                        new Condition.Equals("id", updatedDevice.getId())));
-
+            // The cache check is per process; the storage check also holds when other servers or workers
+            // write positions of the same device.
+            if (PositionUtil.isLatest(cacheManager, position) && storage.updateLatestPosition(
+                    position.getDeviceId(), position.getId(), position.getFixTime())) {
                 cacheManager.updatePosition(position);
                 connectionManager.updatePosition(true, position);
             }

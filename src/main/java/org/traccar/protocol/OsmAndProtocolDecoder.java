@@ -28,6 +28,7 @@ import io.netty.handler.codec.http.QueryStringDecoder;
 import jakarta.json.Json;
 import jakarta.json.JsonNumber;
 import jakarta.json.JsonObject;
+import jakarta.json.JsonObjectBuilder;
 import jakarta.json.JsonString;
 import jakarta.json.JsonValue;
 import org.traccar.BaseHttpProtocolDecoder;
@@ -37,6 +38,8 @@ import org.traccar.session.DeviceSession;
 import org.traccar.Protocol;
 import org.traccar.NetworkMessage;
 import org.traccar.helper.DateUtil;
+import org.traccar.database.IngestOutcome;
+import org.traccar.database.IngestTicket;
 import org.traccar.model.CellTower;
 import org.traccar.model.Command;
 import org.traccar.model.Network;
@@ -48,9 +51,12 @@ import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 public class OsmAndProtocolDecoder extends BaseHttpProtocolDecoder {
 
@@ -85,37 +91,110 @@ public class OsmAndProtocolDecoder extends BaseHttpProtocolDecoder {
 
     private Object decodeBatch(Channel channel, SocketAddress remoteAddress, FullHttpRequest request) {
         HttpResponseStatus status = HttpResponseStatus.OK;
-        List<Position> positions = null;
         String error = null;
-        int accepted = 0;
         try {
             if (!request.method().equals(HttpMethod.POST)) {
                 throw new IllegalArgumentException("Use POST.");
             }
-            var batch = OsmAndPositionBatch.parse(request.content().toString(StandardCharsets.UTF_8));
+            Instant now = Instant.now();
+            var batch = OsmAndPositionBatch.parse(
+                    request.content().toString(StandardCharsets.UTF_8),
+                    now.minusSeconds(getConfig().getLong(Keys.INGEST_MAX_AGE)),
+                    now.plusSeconds(getConfig().getLong(Keys.INGEST_MAX_FUTURE)));
             DeviceSession session = getDeviceSession(channel, remoteAddress, batch.deviceId());
             if (session == null) {
                 status = HttpResponseStatus.UNPROCESSABLE_ENTITY;
                 error = "Aparelho desconhecido ou desativado.";
-            } else if (!OsmAndPositionBatch.allow(session.getDeviceId())) {
+            } else if (!OsmAndPositionBatch.allow(
+                    session.getDeviceId(), getConfig().getInteger(Keys.INGEST_BATCHES_PER_MINUTE))) {
                 status = HttpResponseStatus.TOO_MANY_REQUESTS;
                 error = "Lotes demais deste aparelho; tente novamente em instantes.";
             } else {
-                positions = batch.positions();
+                List<Position> positions = batch.positions();
                 for (Position position : positions) {
                     position.setDeviceId(session.getDeviceId());
                     position.setProtocol(getProtocolName());
                 }
-                accepted = batch.accepted();
+                respondWhenProcessed(channel, remoteAddress, batch);
+                return positions.isEmpty() ? null : positions;
             }
         } catch (RuntimeException e) {
             status = HttpResponseStatus.BAD_REQUEST;
             error = "Corpo do lote inválido.";
         }
-        var body = Json.createObjectBuilder().add("accepted", accepted);
-        if (error != null) {
-            body.add("error", error);
+        sendBatchResponse(channel, remoteAddress, status, Json.createObjectBuilder()
+                .add("accepted", 0)
+                .add("error", error));
+        return null;
+    }
+
+    /**
+     * Answers once every item has an outcome. {@code accepted} counts the leading items with a final outcome,
+     * which the sender may delete; {@code results} has the outcome of each item. The status is 200 when every
+     * item is final and 503 otherwise, so a sender that only looks at the status retries the whole batch.
+     */
+    private void respondWhenProcessed(Channel channel, SocketAddress remoteAddress, OsmAndPositionBatch.Batch batch) {
+        long timeout = getConfig().getLong(Keys.INGEST_TIMEOUT);
+        var futures = new java.util.ArrayList<CompletableFuture<IngestOutcome>>();
+        for (var item : batch.items()) {
+            if (item.position() != null) {
+                futures.add(item.position().getIngestTicket().getOutcome()
+                        .completeOnTimeout(IngestOutcome.failed("timeout"), timeout, TimeUnit.SECONDS));
+            }
         }
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).whenComplete((ignore, e) -> {
+            var outcomes = new java.util.HashMap<OsmAndPositionBatch.Item, IngestOutcome>();
+            for (var item : batch.items()) {
+                outcomes.put(item, outcome(item, outcomes));
+            }
+            int accepted = 0;
+            boolean complete = true;
+            var results = Json.createArrayBuilder();
+            for (var item : batch.items()) {
+                IngestOutcome outcome = outcomes.get(item);
+                if (outcome.status().isFinal()) {
+                    accepted += complete ? 1 : 0;
+                } else {
+                    complete = false;
+                }
+                var result = Json.createObjectBuilder()
+                        .add("index", item.index())
+                        .add("status", outcome.status().name().toLowerCase());
+                if (item.id() != null) {
+                    result.add("id", item.id());
+                }
+                if (outcome.positionId() != 0) {
+                    result.add("positionId", outcome.positionId());
+                }
+                if (outcome.reason() != null) {
+                    result.add("reason", outcome.reason());
+                }
+                results.add(result);
+            }
+            var body = Json.createObjectBuilder().add("accepted", accepted).add("results", results);
+            sendBatchResponse(channel, remoteAddress, complete
+                    ? HttpResponseStatus.OK : HttpResponseStatus.SERVICE_UNAVAILABLE, body);
+        });
+    }
+
+    private static IngestOutcome outcome(
+            OsmAndPositionBatch.Item item, Map<OsmAndPositionBatch.Item, IngestOutcome> earlier) {
+        if (item.rejection() != null) {
+            return item.rejection();
+        }
+        if (item.position() != null) {
+            return item.position().getIngestTicket().getOutcome().join();
+        }
+        // A repeated id within the batch shares the fate of its first occurrence
+        IngestOutcome original = earlier.get(item.original());
+        return switch (original.status()) {
+            case STORED, DUPLICATE -> IngestOutcome.duplicate(original.positionId());
+            default -> original;
+        };
+    }
+
+    private void sendBatchResponse(
+            Channel channel, SocketAddress remoteAddress, HttpResponseStatus status, JsonObjectBuilder body) {
         if (channel != null) {
             var response = new DefaultFullHttpResponse(
                     HttpVersion.HTTP_1_1, status,
@@ -124,7 +203,6 @@ public class OsmAndProtocolDecoder extends BaseHttpProtocolDecoder {
             response.headers().setInt(HttpHeaderNames.CONTENT_LENGTH, response.content().readableBytes());
             channel.writeAndFlush(new NetworkMessage(response, remoteAddress));
         }
-        return positions == null || positions.isEmpty() ? null : positions;
     }
 
     private Object decodeQuery(
@@ -143,6 +221,7 @@ public class OsmAndProtocolDecoder extends BaseHttpProtocolDecoder {
         Network network = new Network();
         Double latitude = null;
         Double longitude = null;
+        String reportId = null;
 
         for (Map.Entry<String, List<String>> entry : params.entrySet()) {
             for (String value : entry.getValue()) {
@@ -160,6 +239,7 @@ public class OsmAndProtocolDecoder extends BaseHttpProtocolDecoder {
                             getCommandsManager().updateNotificationToken(position.getDeviceId(), value);
                         }
                     }
+                    case "reportId" -> reportId = value.trim();
                     case "valid" -> position.setValid(Boolean.parseBoolean(value) || "1".equals(value));
                     case "timestamp" -> {
                         try {
@@ -223,7 +303,8 @@ public class OsmAndProtocolDecoder extends BaseHttpProtocolDecoder {
             }
         }
 
-        if (position.getFixTime() == null) {
+        boolean timeReported = position.getFixTime() != null;
+        if (!timeReported) {
             position.setTime(new Date());
         }
 
@@ -234,6 +315,9 @@ public class OsmAndProtocolDecoder extends BaseHttpProtocolDecoder {
         if (latitude != null && longitude != null) {
             position.setLatitude(latitude);
             position.setLongitude(longitude);
+            if (timeReported) {
+                setLiveTicket(position, reportId);
+            }
         } else {
             getLastLocation(position, position.getDeviceTime());
         }
@@ -252,6 +336,20 @@ public class OsmAndProtocolDecoder extends BaseHttpProtocolDecoder {
         } else {
             sendResponse(channel, HttpResponseStatus.BAD_REQUEST);
             return null;
+        }
+    }
+
+    /**
+     * Gives a live report the identity it would have in an offline batch, so it is stored once even when the
+     * client also queues it. Without a report id the identity is the fix itself (time and coordinates).
+     */
+    private void setLiveTicket(Position position, String reportId) {
+        if (getConfig().getBoolean(Keys.INGEST_LIVE_RECEIPTS)) {
+            boolean usable = reportId != null && !reportId.isEmpty()
+                    && reportId.length() <= OsmAndPositionBatch.MAX_ID_LENGTH;
+            String id = usable ? reportId : IngestTicket.fixId(
+                    position.getFixTime().getTime(), position.getLatitude(), position.getLongitude());
+            position.setIngestTicket(new IngestTicket(id));
         }
     }
 
@@ -292,6 +390,9 @@ public class OsmAndProtocolDecoder extends BaseHttpProtocolDecoder {
                 position.setAccuracy(accuracy);
             }
             position.setAltitude(coordinates.getJsonNumber("altitude").doubleValue());
+            if (location.get("uuid") instanceof JsonString uuid) {
+                setLiveTicket(position, uuid.getString().trim());
+            }
         } else {
             getLastLocation(position, null);
         }

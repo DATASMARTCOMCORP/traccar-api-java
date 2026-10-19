@@ -17,23 +17,32 @@
 package org.traccar.handler;
 
 import jakarta.inject.Inject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
 import org.traccar.helper.DistanceCalculator;
+import org.traccar.helper.model.PositionUtil;
 import org.traccar.model.Position;
 import org.traccar.session.cache.CacheManager;
+import org.traccar.storage.Storage;
+import org.traccar.storage.StorageException;
 
 public class DistanceHandler extends BasePositionHandler {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(DistanceHandler.class);
+
     private final CacheManager cacheManager;
+    private final Storage storage;
 
     private final boolean filter;
     private final int minError;
     private final int maxError;
 
     @Inject
-    public DistanceHandler(Config config, CacheManager cacheManager) {
+    public DistanceHandler(Config config, CacheManager cacheManager, Storage storage) {
         this.cacheManager = cacheManager;
+        this.storage = storage;
         this.filter = config.getBoolean(Keys.COORDINATES_FILTER);
         this.minError = config.getInteger(Keys.COORDINATES_MIN_ERROR);
         this.maxError = config.getInteger(Keys.COORDINATES_MAX_ERROR);
@@ -48,6 +57,17 @@ public class DistanceHandler extends BasePositionHandler {
         }
         double totalDistance;
         Position last = cacheManager.getPosition(position.getDeviceId());
+        Position next = null;
+        if (PositionUtil.isLate(cacheManager, position)) {
+            // Measure a late position from the stored one before it, not from the latest one
+            try {
+                next = PositionUtil.getNeighbor(storage, position, false);
+                last = PositionUtil.getNeighbor(storage, position, true);
+            } catch (StorageException e) {
+                LOGGER.warn("Failed to load neighbor positions", e);
+                next = null;
+            }
+        }
         if (last != null) {
             totalDistance = last.getDouble(Position.KEY_TOTAL_DISTANCE);
             if (!position.hasAttribute(Position.KEY_DISTANCE)) {
@@ -65,6 +85,11 @@ public class DistanceHandler extends BasePositionHandler {
             }
         } else {
             totalDistance = 0.0;
+        }
+        if (next != null) {
+            // Positions after a late one already carry their totals; keep the sequence non-decreasing
+            double nextTotal = next.getDouble(Position.KEY_TOTAL_DISTANCE);
+            distance = Math.max(0, Math.min(distance, nextTotal - totalDistance));
         }
         position.set(Position.KEY_DISTANCE, distance);
         position.set(Position.KEY_TOTAL_DISTANCE, totalDistance + distance);

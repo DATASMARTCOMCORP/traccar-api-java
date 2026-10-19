@@ -19,6 +19,7 @@ import java.util.Date;
 import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import org.traccar.database.IngestTicket;
 import org.traccar.storage.QueryIgnore;
 import org.traccar.storage.StorageName;
 
@@ -205,6 +206,20 @@ public class Position extends Message {
     }
 
     private boolean outdated;
+
+    private IngestTicket ingestTicket;
+
+    @JsonIgnore
+    @QueryIgnore
+    public IngestTicket getIngestTicket() {
+        return ingestTicket;
+    }
+
+    @JsonIgnore
+    @QueryIgnore
+    public void setIngestTicket(IngestTicket ingestTicket) {
+        this.ingestTicket = ingestTicket;
+    }
 
     @JsonIgnore
     @QueryIgnore

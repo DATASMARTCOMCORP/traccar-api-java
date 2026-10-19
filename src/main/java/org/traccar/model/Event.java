@@ -39,6 +39,11 @@ public class Event extends Message {
 
     public static final String ALL_EVENTS = "allEvents";
 
+    /**
+     * Set on events found while storing a position that arrived after newer ones of the same device.
+     */
+    public static final String KEY_LATE = "late";
+
     public static final String TYPE_COMMAND_RESULT = "commandResult";
 
     public static final String TYPE_DEVICE_ONLINE = "deviceOnline";

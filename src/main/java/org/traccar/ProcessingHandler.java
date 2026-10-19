@@ -23,6 +23,7 @@ import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import org.traccar.config.Config;
 import org.traccar.database.BufferingManager;
+import org.traccar.database.IngestOutcome;
 import org.traccar.database.NotificationManager;
 import org.traccar.handler.BasePositionHandler;
 import org.traccar.handler.ComputedAttributesHandler;
@@ -41,6 +42,7 @@ import org.traccar.handler.MotionHandler;
 import org.traccar.handler.OutdatedHandler;
 import org.traccar.handler.PositionForwardingHandler;
 import org.traccar.handler.PostProcessHandler;
+import org.traccar.handler.ReceiptHandler;
 import org.traccar.handler.SpeedLimitHandler;
 import org.traccar.handler.TimeHandler;
 import org.traccar.handler.events.AlarmEventHandler;
@@ -58,6 +60,7 @@ import org.traccar.handler.events.OverspeedEventHandler;
 import org.traccar.handler.events.ProximityEventHandler;
 import org.traccar.handler.network.AcknowledgementHandler;
 import org.traccar.helper.PositionLogger;
+import org.traccar.model.Event;
 import org.traccar.model.Position;
 import org.traccar.session.cache.CacheManager;
 
@@ -99,6 +102,7 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
         bufferingManager = new BufferingManager(config, this);
 
         positionHandlers = Stream.of(
+                ReceiptHandler.class,
                 ComputedAttributesHandler.Early.class,
                 OutdatedHandler.class,
                 TimeHandler.class,
@@ -190,23 +194,43 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
     }
 
     private void processEventHandlers(ChannelHandlerContext ctx, Position position) {
-        eventHandlers.forEach(handler -> handler.analyzePosition(
-                position, (event) -> notificationManager.updateEvents(Map.of(event, position))));
+        var callback = new BaseEventHandler.Callback() {
+            @Override
+            public void eventDetected(Event event) {
+                notificationManager.updateEvents(Map.of(event, position));
+            }
+
+            @Override
+            public void eventDetected(Event event, Position eventPosition) {
+                notificationManager.updateEvents(Map.of(event, eventPosition));
+            }
+        };
+        eventHandlers.forEach(handler -> handler.analyzePosition(position, callback));
         finishedProcessing(ctx, position, false);
     }
 
     private void finishedProcessing(ChannelHandlerContext ctx, Position position, boolean filtered) {
         if (!filtered) {
             postProcessHandler.handlePosition(position, ignore -> {
+                complete(position, IngestOutcome.stored(position.getId()));
                 positionLogger.log(ctx, position);
                 ctx.writeAndFlush(new AcknowledgementHandler.EventHandled(position));
                 processNextPosition(position.getDeviceId());
             });
         } else {
+            // A handler that stopped the position for its own reason (duplicate, storage failure) has already
+            // completed the ticket; otherwise a filter dropped it.
+            complete(position, IngestOutcome.rejected("filtered"));
             ctx.writeAndFlush(new AcknowledgementHandler.EventHandled(position));
             processNextPosition(position.getDeviceId());
         }
         cacheManager.removeDevice(position.getDeviceId(), position);
+    }
+
+    private static void complete(Position position, IngestOutcome outcome) {
+        if (position.getIngestTicket() != null) {
+            position.getIngestTicket().complete(outcome);
+        }
     }
 
     private void processNextPosition(long deviceId) {
