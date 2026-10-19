@@ -16,6 +16,8 @@
 package org.traccar.storage;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
 import org.traccar.model.BaseModel;
@@ -35,6 +37,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Savepoint;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Date;
@@ -48,16 +51,20 @@ import java.util.stream.Stream;
 
 public class DatabaseStorage extends Storage {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(DatabaseStorage.class);
+
     private final Config config;
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
     private final String databaseType;
+    private final long lockTimeout;
 
     @Inject
     public DatabaseStorage(Config config, DataSource dataSource, ObjectMapper objectMapper) {
         this.config = config;
         this.dataSource = dataSource;
         this.objectMapper = objectMapper;
+        lockTimeout = config.getLong(Keys.PROCESSING_LOCK_TIMEOUT);
 
         try (var connection = dataSource.getConnection()) {
             databaseType = connection.getMetaData().getDatabaseProductName();
@@ -86,7 +93,7 @@ public class DatabaseStorage extends Storage {
         query.append(formatOrder(request.getOrder()));
         QueryBuilder builder = null;
         try {
-            builder = QueryBuilder.create(config, dataSource, objectMapper, query.toString());
+            builder = builder(query.toString(), false);
             List<Object> values = getConditionVariables(request.getCondition());
             for (int index = 0; index < values.size(); index++) {
                 builder.setValue(index, values.get(index));
@@ -95,7 +102,7 @@ public class DatabaseStorage extends Storage {
             builder = null;
             return stream;
         } catch (SQLException e) {
-            throw new StorageException(e);
+            throw error(e);
         } finally {
             if (builder != null) {
                 try {
@@ -110,12 +117,11 @@ public class DatabaseStorage extends Storage {
     @Override
     public <T> long addObject(T entity, Request request) throws StorageException {
         List<String> columns = request.getColumns().getColumns(entity.getClass(), "get");
-        try (QueryBuilder builder = QueryBuilder.create(
-                config, dataSource, objectMapper, formatInsert(entity.getClass(), columns), true)) {
+        try (QueryBuilder builder = builder(formatInsert(entity.getClass(), columns), true)) {
             builder.setObject(entity, columns);
             return builder.executeUpdate();
         } catch (SQLException e) {
-            throw new StorageException(e);
+            throw error(e);
         }
     }
 
@@ -123,8 +129,7 @@ public class DatabaseStorage extends Storage {
     public <T> List<Long> addObjects(List<T> entities, Request request) throws StorageException {
         Class<?> entityClass = entities.getFirst().getClass();
         List<String> columns = request.getColumns().getColumns(entityClass, "get");
-        try (QueryBuilder builder = QueryBuilder.create(
-                config, dataSource, objectMapper, formatInsert(entityClass, columns), true)) {
+        try (QueryBuilder builder = builder(formatInsert(entityClass, columns), true)) {
             for (T entity : entities) {
                 builder.setObject(entity, columns);
                 builder.addBatch();
@@ -136,21 +141,186 @@ public class DatabaseStorage extends Storage {
             }
             return ids;
         } catch (SQLException e) {
-            throw new StorageException(e);
+            throw error(e);
         }
     }
 
     private static final String UNIQUE_VIOLATION = "23505";
+    private static final int LOCK_CLASS = 0x7472; // first key of the per-device advisory locks
+
+    private final ThreadLocal<DatabaseTransaction> bound = new ThreadLocal<>();
+
+    private final class DatabaseTransaction extends Transaction {
+
+        private final Connection connection;
+        private volatile boolean finished;
+
+        private DatabaseTransaction(Connection connection) {
+            this.connection = connection;
+        }
+
+        @Override
+        public Scope bind() {
+            DatabaseTransaction previous = bound.get();
+            bound.set(this);
+            return () -> {
+                if (previous != null) {
+                    bound.set(previous);
+                } else {
+                    bound.remove();
+                }
+            };
+        }
+
+        @Override
+        protected void commit() throws StorageException {
+            finished = true;
+            try {
+                connection.commit();
+            } catch (SQLException e) {
+                throw error(e);
+            } finally {
+                close();
+            }
+        }
+
+        @Override
+        protected void rollback() {
+            finished = true;
+            try {
+                if (!connection.isClosed()) {
+                    connection.rollback();
+                }
+            } catch (SQLException e) {
+                LOGGER.warn("Transaction rollback failed", e);
+            } finally {
+                close();
+            }
+        }
+
+        private void close() {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                LOGGER.warn("Connection close failed", e);
+            }
+        }
+    }
+
+    @Override
+    public Transaction begin(long deviceId) throws StorageException {
+        Connection connection = null;
+        try {
+            connection = dataSource.getConnection();
+            connection.setAutoCommit(false);
+            // The lock belongs to the transaction: commit, rollback or a lost connection releases it
+            if (databaseType.equals("PostgreSQL")) {
+                try (var statement = connection.createStatement()) {
+                    statement.execute("SET LOCAL lock_timeout = " + lockTimeout);
+                }
+                try (PreparedStatement statement = connection.prepareStatement(
+                        "SELECT pg_advisory_xact_lock(?, ?)")) {
+                    statement.setInt(1, LOCK_CLASS);
+                    statement.setInt(2, (int) deviceId);
+                    statement.execute();
+                }
+            } else {
+                String lock = databaseType.equals("Microsoft SQL Server")
+                        ? "SELECT id FROM tc_devices WITH (UPDLOCK, ROWLOCK) WHERE id = ?"
+                        : "SELECT id FROM tc_devices WHERE id = ? FOR UPDATE";
+                try (PreparedStatement statement = connection.prepareStatement(lock)) {
+                    statement.setLong(1, deviceId);
+                    statement.executeQuery().close();
+                }
+            }
+            return new DatabaseTransaction(connection);
+        } catch (SQLException e) {
+            if (connection != null) {
+                try {
+                    connection.rollback();
+                    connection.close();
+                } catch (SQLException ignored) {
+                    // the connection is unusable anyway
+                }
+            }
+            throw error(e);
+        }
+    }
+
+    /** The bound transaction, unless it already finished (a scope may outlive its transaction). */
+    private DatabaseTransaction active() {
+        DatabaseTransaction transaction = bound.get();
+        return transaction != null && !transaction.finished ? transaction : null;
+    }
+
+    @Override
+    public Transaction current() {
+        return active();
+    }
+
+    @Override
+    public <R> R execute(SqlWork<R> work) throws StorageException {
+        DatabaseTransaction transaction = active();
+        try {
+            if (transaction != null) {
+                return work.run(transaction.connection);
+            }
+            try (Connection connection = dataSource.getConnection()) {
+                return work.run(connection);
+            }
+        } catch (SQLException e) {
+            throw error(e);
+        }
+    }
+
+    /** Like execute, but outside a bound transaction the work gets a transaction of its own. */
+    private <R> R atomically(SqlWork<R> work) throws StorageException {
+        if (active() != null) {
+            return execute(work);
+        }
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                R result = work.run(connection);
+                connection.commit();
+                return result;
+            } catch (SQLException | RuntimeException e) {
+                connection.rollback();
+                throw e;
+            } finally {
+                connection.setAutoCommit(true);
+            }
+        } catch (SQLException e) {
+            throw error(e);
+        }
+    }
+
+    /** A failed statement leaves the bound transaction unusable, so it can only be rolled back. */
+    private StorageException error(SQLException e) {
+        DatabaseTransaction transaction = active();
+        if (transaction != null) {
+            transaction.setRollbackOnly();
+        }
+        return new StorageException(e);
+    }
+
+    private QueryBuilder builder(String query, boolean returnGeneratedKeys) throws SQLException {
+        DatabaseTransaction transaction = active();
+        if (transaction != null) {
+            return QueryBuilder.create(config, transaction.connection, objectMapper, query, returnGeneratedKeys);
+        }
+        return QueryBuilder.create(config, dataSource, objectMapper, query, returnGeneratedKeys);
+    }
 
     @Override
     public StoredPosition addPosition(Position position, String eventId) throws StorageException {
         List<String> columns = new Columns.Exclude("id").getColumns(Position.class, "get");
-        try (Connection connection = dataSource.getConnection()) {
-            connection.setAutoCommit(false);
+        String insert = formatInsert(Position.class, columns);
+        return atomically(connection -> {
+            Savepoint savepoint = connection.setSavepoint();
             try {
                 long positionId;
-                try (QueryBuilder builder = QueryBuilder.create(
-                        config, connection, objectMapper, formatInsert(Position.class, columns), true)) {
+                try (QueryBuilder builder = QueryBuilder.create(config, connection, objectMapper, insert, true)) {
                     builder.setObject(position, columns);
                     positionId = builder.executeUpdate();
                 }
@@ -163,50 +333,46 @@ public class DatabaseStorage extends Storage {
                     statement.setTimestamp(4, new Timestamp(position.getFixTime().getTime()));
                     statement.executeUpdate();
                 }
-                connection.commit();
+                connection.releaseSavepoint(savepoint);
                 return new StoredPosition(positionId, false);
             } catch (SQLException e) {
-                connection.rollback();
+                connection.rollback(savepoint);
                 if (UNIQUE_VIOLATION.equals(e.getSQLState())) {
-                    long existing = getReceipt(position.getDeviceId(), eventId);
+                    long existing = receipt(connection, position.getDeviceId(), eventId);
                     if (existing != 0) {
                         return new StoredPosition(existing, true);
                     }
                 }
                 throw e;
-            } finally {
-                connection.setAutoCommit(true);
             }
-        } catch (SQLException e) {
-            throw new StorageException(e);
-        }
+        });
     }
 
-    @Override
-    public long getReceipt(long deviceId, String eventId) throws StorageException {
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "SELECT positionid FROM tc_position_receipts WHERE deviceid = ? AND eventid = ?")) {
+    private static long receipt(Connection connection, long deviceId, String eventId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT positionid FROM tc_position_receipts WHERE deviceid = ? AND eventid = ?")) {
             statement.setLong(1, deviceId);
             statement.setString(2, eventId);
             try (ResultSet resultSet = statement.executeQuery()) {
                 return resultSet.next() ? resultSet.getLong(1) : 0;
             }
-        } catch (SQLException e) {
-            throw new StorageException(e);
         }
     }
 
     @Override
+    public long getReceipt(long deviceId, String eventId) throws StorageException {
+        return execute(connection -> receipt(connection, deviceId, eventId));
+    }
+
+    @Override
     public void removeReceipts(Date fixTime) throws StorageException {
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "DELETE FROM tc_position_receipts WHERE fixtime < ?")) {
-            statement.setTimestamp(1, new Timestamp(fixTime.getTime()));
-            statement.executeUpdate();
-        } catch (SQLException e) {
-            throw new StorageException(e);
-        }
+        execute(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "DELETE FROM tc_position_receipts WHERE fixtime < ?")) {
+                statement.setTimestamp(1, new Timestamp(fixTime.getTime()));
+                return statement.executeUpdate();
+            }
+        });
     }
 
     @Override
@@ -214,55 +380,42 @@ public class DatabaseStorage extends Storage {
         String lockDevice = databaseType.equals("Microsoft SQL Server")
                 ? "SELECT positionid FROM tc_devices WITH (UPDLOCK, ROWLOCK) WHERE id = ?"
                 : "SELECT positionid FROM tc_devices WHERE id = ? FOR UPDATE";
-        try (Connection connection = dataSource.getConnection()) {
-            connection.setAutoCommit(false);
-            try {
-                // The row lock orders concurrent updates of one device. Each later statement sees the positions
-                // committed by whoever held the lock before, so the newest position always wins.
-                long currentId;
-                try (PreparedStatement statement = connection.prepareStatement(lockDevice)) {
-                    statement.setLong(1, deviceId);
+        return atomically(connection -> {
+            // The row lock orders concurrent updates of one device. Each later statement sees the positions
+            // committed by whoever held the lock before, so the newest position always wins.
+            long currentId;
+            try (PreparedStatement statement = connection.prepareStatement(lockDevice)) {
+                statement.setLong(1, deviceId);
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    if (!resultSet.next()) {
+                        return false;
+                    }
+                    currentId = resultSet.getLong(1);
+                }
+            }
+            if (currentId != 0 && currentId != positionId) {
+                try (PreparedStatement statement = connection.prepareStatement(
+                        "SELECT 1 FROM tc_positions WHERE id = ? AND (fixtime > ? OR (fixtime = ? AND id > ?))")) {
+                    Timestamp timestamp = new Timestamp(fixTime.getTime());
+                    statement.setLong(1, currentId);
+                    statement.setTimestamp(2, timestamp);
+                    statement.setTimestamp(3, timestamp);
+                    statement.setLong(4, positionId);
                     try (ResultSet resultSet = statement.executeQuery()) {
-                        if (!resultSet.next()) {
-                            connection.rollback();
+                        if (resultSet.next()) {
                             return false;
                         }
-                        currentId = resultSet.getLong(1);
                     }
                 }
-                if (currentId != 0 && currentId != positionId) {
-                    try (PreparedStatement statement = connection.prepareStatement(
-                            "SELECT 1 FROM tc_positions WHERE id = ? AND (fixtime > ? OR (fixtime = ? AND id > ?))")) {
-                        Timestamp timestamp = new Timestamp(fixTime.getTime());
-                        statement.setLong(1, currentId);
-                        statement.setTimestamp(2, timestamp);
-                        statement.setTimestamp(3, timestamp);
-                        statement.setLong(4, positionId);
-                        try (ResultSet resultSet = statement.executeQuery()) {
-                            if (resultSet.next()) {
-                                connection.rollback();
-                                return false;
-                            }
-                        }
-                    }
-                }
-                try (PreparedStatement statement = connection.prepareStatement(
-                        "UPDATE tc_devices SET positionid = ? WHERE id = ?")) {
-                    statement.setLong(1, positionId);
-                    statement.setLong(2, deviceId);
-                    statement.executeUpdate();
-                }
-                connection.commit();
-                return true;
-            } catch (SQLException e) {
-                connection.rollback();
-                throw e;
-            } finally {
-                connection.setAutoCommit(true);
             }
-        } catch (SQLException e) {
-            throw new StorageException(e);
-        }
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "UPDATE tc_devices SET positionid = ? WHERE id = ?")) {
+                statement.setLong(1, positionId);
+                statement.setLong(2, deviceId);
+                statement.executeUpdate();
+            }
+            return true;
+        });
     }
 
     private String formatInsert(Class<?> entityClass, List<String> columns) throws StorageException {
@@ -284,7 +437,7 @@ public class DatabaseStorage extends Storage {
         query.append(" SET ");
         query.append(formatColumns(columns, c -> c + " = ?"));
         query.append(formatCondition(request.getCondition()));
-        try (QueryBuilder builder = QueryBuilder.create(config, dataSource, objectMapper, query.toString())) {
+        try (QueryBuilder builder = builder(query.toString(), false)) {
             builder.setObject(entity, columns);
             List<Object> values = getConditionVariables(request.getCondition());
             for (int index = 0; index < values.size(); index++) {
@@ -292,7 +445,7 @@ public class DatabaseStorage extends Storage {
             }
             builder.executeUpdate();
         } catch (SQLException e) {
-            throw new StorageException(e);
+            throw error(e);
         }
     }
 
@@ -301,14 +454,14 @@ public class DatabaseStorage extends Storage {
         StringBuilder query = new StringBuilder("DELETE FROM ");
         query.append(getStorageName(clazz));
         query.append(formatCondition(request.getCondition()));
-        try (QueryBuilder builder = QueryBuilder.create(config, dataSource, objectMapper, query.toString())) {
+        try (QueryBuilder builder = builder(query.toString(), false)) {
             List<Object> values = getConditionVariables(request.getCondition());
             for (int index = 0; index < values.size(); index++) {
                 builder.setValue(index, values.get(index));
             }
             builder.executeUpdate();
         } catch (SQLException e) {
-            throw new StorageException(e);
+            throw error(e);
         }
     }
 
@@ -327,14 +480,14 @@ public class DatabaseStorage extends Storage {
         }
         Condition combinedCondition = Condition.merge(conditions);
         query.append(formatCondition(combinedCondition));
-        try (QueryBuilder builder = QueryBuilder.create(config, dataSource, objectMapper, query.toString())) {
+        try (QueryBuilder builder = builder(query.toString(), false)) {
             List<Object> values = getConditionVariables(combinedCondition);
             for (int index = 0; index < values.size(); index++) {
                 builder.setValue(index, values.get(index));
             }
             return builder.executePermissionsQuery();
         } catch (SQLException e) {
-            throw new StorageException(e);
+            throw error(e);
         }
     }
 
@@ -346,13 +499,13 @@ public class DatabaseStorage extends Storage {
         query.append(" VALUES (");
         query.append(entries.stream().map(e -> "?").collect(Collectors.joining(", ")));
         query.append(")");
-        try (QueryBuilder builder = QueryBuilder.create(config, dataSource, objectMapper, query.toString(), true)) {
+        try (QueryBuilder builder = builder(query.toString(), true)) {
             for (int index = 0; index < entries.size(); index++) {
                 builder.setLong(index, entries.get(index).getValue());
             }
             builder.executeUpdate();
         } catch (SQLException e) {
-            throw new StorageException(e);
+            throw error(e);
         }
     }
 
@@ -363,12 +516,12 @@ public class DatabaseStorage extends Storage {
         query.append(" WHERE ");
         query.append(Permission.getKey(permission.getOwnerClass())).append(" = ? AND ");
         query.append(Permission.getKey(permission.getPropertyClass())).append(" = ?");
-        try (QueryBuilder builder = QueryBuilder.create(config, dataSource, objectMapper, query.toString(), true)) {
+        try (QueryBuilder builder = builder(query.toString(), true)) {
             builder.setLong(0, permission.getOwnerId());
             builder.setLong(1, permission.getPropertyId());
             builder.executeUpdate();
         } catch (SQLException e) {
-            throw new StorageException(e);
+            throw error(e);
         }
     }
 

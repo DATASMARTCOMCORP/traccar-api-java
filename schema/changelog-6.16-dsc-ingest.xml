@@ -41,4 +41,101 @@
 
   </changeSet>
 
+  <!--
+    Crash-safe processing. Deliveries to the outside (event webhook, notifications, position forwarding) are
+    written in the same transaction as the data they announce and sent after the commit, at least once.
+    Reports outside the accepted age are kept aside instead of dropped. Late positions record the interval
+    whose derived results (trips, motion, overspeed) they make incomplete.
+  -->
+  <changeSet author="dsc-trackhub" id="changelog-6.16-dsc-outbox">
+
+    <createTable tableName="tc_outbox">
+      <column name="id" type="BIGINT" autoIncrement="true">
+        <constraints primaryKey="true" />
+      </column>
+      <column name="kind" type="VARCHAR(16)">
+        <constraints nullable="false" />
+      </column>
+      <column name="deviceid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="objectid" type="BIGINT">
+        <constraints nullable="false" />
+      </column>
+      <column name="createdat" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+      <column name="claimeduntil" type="TIMESTAMP" />
+      <column name="deliveredat" type="TIMESTAMP" />
+      <column name="attempts" type="INT" defaultValueNumeric="0">
+        <constraints nullable="false" />
+      </column>
+    </createTable>
+
+    <createIndex tableName="tc_outbox" indexName="idx_outbox_pending">
+      <column name="deliveredat" />
+      <column name="claimeduntil" />
+    </createIndex>
+
+    <createTable tableName="tc_position_quarantine">
+      <column name="deviceid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="eventid" type="VARCHAR(128)">
+        <constraints nullable="false" />
+      </column>
+      <column name="fixtime" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+      <column name="reason" type="VARCHAR(32)">
+        <constraints nullable="false" />
+      </column>
+      <column name="receivedat" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+      <column name="position" type="TEXT">
+        <constraints nullable="false" />
+      </column>
+    </createTable>
+
+    <addPrimaryKey tableName="tc_position_quarantine" columnNames="deviceid, eventid"
+                   constraintName="pk_position_quarantine" />
+
+    <addForeignKeyConstraint baseTableName="tc_position_quarantine" baseColumnNames="deviceid"
+                             constraintName="fk_position_quarantine_deviceid"
+                             referencedTableName="tc_devices" referencedColumnNames="id" onDelete="CASCADE" />
+
+    <createTable tableName="tc_late_positions">
+      <column name="id" type="BIGINT" autoIncrement="true">
+        <constraints primaryKey="true" />
+      </column>
+      <column name="deviceid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="positionid" type="BIGINT">
+        <constraints nullable="false" />
+      </column>
+      <column name="fromtime" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+      <column name="totime" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+      <column name="createdat" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+      <column name="completedat" type="TIMESTAMP" />
+    </createTable>
+
+    <addForeignKeyConstraint baseTableName="tc_late_positions" baseColumnNames="deviceid"
+                             constraintName="fk_late_positions_deviceid"
+                             referencedTableName="tc_devices" referencedColumnNames="id" onDelete="CASCADE" />
+
+    <createIndex tableName="tc_late_positions" indexName="idx_late_positions_pending">
+      <column name="deviceid" />
+      <column name="completedat" />
+    </createIndex>
+
+  </changeSet>
+
 </databaseChangeLog>

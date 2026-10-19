@@ -15,11 +15,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class OsmAndPositionBatchTest {
 
-    private static final Instant OLDEST = Instant.ofEpochSecond(1600000000);
-    private static final Instant NEWEST = Instant.ofEpochSecond(1800000000);
-
     private static OsmAndPositionBatch.Batch parse(String body) {
-        return OsmAndPositionBatch.parse(body, OLDEST, NEWEST);
+        return OsmAndPositionBatch.parse(body);
     }
 
     @Test
@@ -70,22 +67,6 @@ class OsmAndPositionBatchTest {
         for (int i = 3; i < 6; i++) {
             assertEquals(IngestOutcome.rejected("invalid id"), items.get(i).rejection());
         }
-    }
-
-    @Test
-    void rejectsFixesOutsideTheAcceptedAge() {
-        var items = parse("""
-                {"deviceId":"phone","positions":[
-                  {"timestamp":1599999999,"lat":-23,"lon":-44},
-                  {"timestamp":1600000000,"lat":-23,"lon":-44},
-                  {"timestamp":1800000000,"lat":-23,"lon":-44},
-                  {"timestamp":1800000001,"lat":-23,"lon":-44}
-                ]}
-                """).items();
-        assertEquals(IngestOutcome.rejected("too old"), items.get(0).rejection());
-        assertNotNull(items.get(1).position());
-        assertNotNull(items.get(2).position());
-        assertEquals(IngestOutcome.rejected("future"), items.get(3).rejection());
     }
 
     @Test

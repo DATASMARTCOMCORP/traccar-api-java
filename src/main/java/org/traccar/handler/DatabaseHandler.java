@@ -25,6 +25,9 @@ import org.traccar.model.Position;
 import org.traccar.storage.Storage;
 import org.traccar.storage.StorageException;
 import org.traccar.storage.StoredPosition;
+import org.traccar.storage.Transaction;
+import org.traccar.storage.query.Columns;
+import org.traccar.storage.query.Request;
 
 public class DatabaseHandler extends BasePositionHandler {
 
@@ -44,16 +47,22 @@ public class DatabaseHandler extends BasePositionHandler {
     @Override
     public void onPosition(Position position, Callback callback) {
         var ticket = position.getIngestTicket();
-        if (ticket != null) {
+        Transaction transaction = storage.current();
+        if (ticket != null || transaction != null) {
+            // In the position's transaction: the insert commits with everything else, or not at all
             try {
-                StoredPosition stored = storage.addPosition(position, ticket.getEventId());
-                if (stored.duplicate()) {
-                    ticket.complete(IngestOutcome.duplicate(stored.positionId()));
-                    callback.processed(true);
-                } else {
+                if (ticket != null) {
+                    StoredPosition stored = storage.addPosition(position, ticket.getEventId());
+                    if (stored.duplicate()) {
+                        ticket.decide(IngestOutcome.duplicate(stored.positionId()));
+                        callback.processed(true);
+                        return;
+                    }
                     stored(position, stored.positionId());
-                    callback.processed(false);
+                } else {
+                    stored(position, storage.addObject(position, new Request(new Columns.Exclude("id"))));
                 }
+                callback.processed(false);
             } catch (StorageException error) {
                 failed(position, error, callback);
             }
@@ -78,7 +87,11 @@ public class DatabaseHandler extends BasePositionHandler {
     private void failed(Position position, Throwable error, Callback callback) {
         LOGGER.warn("Failed to store position", error);
         if (position.getIngestTicket() != null) {
-            position.getIngestTicket().complete(IngestOutcome.failed("storage"));
+            position.getIngestTicket().decide(IngestOutcome.failed("storage"));
+        }
+        Transaction transaction = storage.current();
+        if (transaction != null) {
+            transaction.setRollbackOnly();
         }
         callback.processed(true);
     }

@@ -21,6 +21,8 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.config.Config;
 import org.traccar.database.BufferingManager;
 import org.traccar.database.IngestOutcome;
@@ -63,6 +65,9 @@ import org.traccar.helper.PositionLogger;
 import org.traccar.model.Event;
 import org.traccar.model.Position;
 import org.traccar.session.cache.CacheManager;
+import org.traccar.storage.Storage;
+import org.traccar.storage.StorageException;
+import org.traccar.storage.Transaction;
 
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -76,7 +81,10 @@ import java.util.stream.Stream;
 @ChannelHandler.Sharable
 public class ProcessingHandler extends ChannelInboundHandlerAdapter implements BufferingManager.Callback {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(ProcessingHandler.class);
+
     private final CacheManager cacheManager;
+    private final Storage storage;
     private final NotificationManager notificationManager;
     private final PositionLogger positionLogger;
     private final BufferingManager bufferingManager;
@@ -95,8 +103,10 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
     @Inject
     public ProcessingHandler(
             Injector injector, Config config,
-            CacheManager cacheManager, NotificationManager notificationManager, PositionLogger positionLogger) {
+            CacheManager cacheManager, Storage storage, NotificationManager notificationManager,
+            PositionLogger positionLogger) {
         this.cacheManager = cacheManager;
+        this.storage = storage;
         this.notificationManager = notificationManager;
         this.positionLogger = positionLogger;
         bufferingManager = new BufferingManager(config, this);
@@ -119,8 +129,8 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
                 DriverHandler.class,
                 CopyAttributesHandler.class,
                 EngineHoursHandler.class,
-                PositionForwardingHandler.class,
-                DatabaseHandler.class)
+                DatabaseHandler.class,
+                PositionForwardingHandler.class)
                 .map((clazz) -> (BasePositionHandler) injector.getInstance(clazz))
                 .filter(Objects::nonNull)
                 .toList();
@@ -164,36 +174,68 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
             queue.offer(new QueuedPosition(context, position));
         }
         if (!queued) {
-            processPositionHandlers(context, position);
+            processPosition(context, position);
         }
     }
 
-    private void processPositionHandlers(ChannelHandlerContext ctx, Position position) {
-        var iterator = positionHandlers.iterator();
-        iterator.next().handlePosition(position, new BasePositionHandler.Callback() {
-            @Override
-            public void processed(boolean filtered) {
-                Runnable continuation = () -> {
-                    if (!filtered) {
-                        if (iterator.hasNext()) {
-                            iterator.next().handlePosition(position, this);
-                        } else {
-                            processEventHandlers(ctx, position);
-                        }
-                    } else {
-                        finishedProcessing(ctx, position, true);
-                    }
-                };
-                if (ctx.executor().inEventLoop()) {
-                    continuation.run();
-                } else {
-                    ctx.executor().execute(continuation);
-                }
-            }
-        });
+    /**
+     * Processes one position in one transaction: lock the device (across all servers), reload its stored state,
+     * run the handlers, then commit the position, its receipt, the device state and the events together.
+     * Deliveries to the outside start after the commit.
+     */
+    private void processPosition(ChannelHandlerContext ctx, Position position) {
+        Transaction transaction;
+        try {
+            transaction = storage.begin(position.getDeviceId());
+        } catch (StorageException e) {
+            LOGGER.warn("Failed to lock device {}", position.getDeviceId(), e);
+            settle(position, false, false);
+            ctx.writeAndFlush(new AcknowledgementHandler.EventHandled(position));
+            processNextPosition(position.getDeviceId());
+            cacheManager.removeDevice(position.getDeviceId(), position);
+            return;
+        }
+        try (var scope = transaction.bind()) {
+            cacheManager.reloadDevice(position.getDeviceId());
+        } catch (StorageException e) {
+            LOGGER.warn("Failed to load device state {}", position.getDeviceId(), e);
+            transaction.setRollbackOnly();
+            finishedProcessing(ctx, position, true, transaction);
+            return;
+        }
+        processPositionHandlers(ctx, position, transaction);
     }
 
-    private void processEventHandlers(ChannelHandlerContext ctx, Position position) {
+    private void processPositionHandlers(ChannelHandlerContext ctx, Position position, Transaction transaction) {
+        var iterator = positionHandlers.iterator();
+        try (var scope = transaction.bind()) {
+            iterator.next().handlePosition(position, new BasePositionHandler.Callback() {
+                @Override
+                public void processed(boolean filtered) {
+                    Runnable continuation = () -> {
+                        try (var inner = transaction.bind()) {
+                            if (!filtered) {
+                                if (iterator.hasNext()) {
+                                    iterator.next().handlePosition(position, this);
+                                } else {
+                                    processEventHandlers(ctx, position, transaction);
+                                }
+                            } else {
+                                finishedProcessing(ctx, position, true, transaction);
+                            }
+                        }
+                    };
+                    if (ctx.executor().inEventLoop()) {
+                        continuation.run();
+                    } else {
+                        ctx.executor().execute(continuation);
+                    }
+                }
+            });
+        }
+    }
+
+    private void processEventHandlers(ChannelHandlerContext ctx, Position position, Transaction transaction) {
         var callback = new BaseEventHandler.Callback() {
             @Override
             public void eventDetected(Event event) {
@@ -206,30 +248,44 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
             }
         };
         eventHandlers.forEach(handler -> handler.analyzePosition(position, callback));
-        finishedProcessing(ctx, position, false);
+        finishedProcessing(ctx, position, false, transaction);
     }
 
-    private void finishedProcessing(ChannelHandlerContext ctx, Position position, boolean filtered) {
+    private void finishedProcessing(
+            ChannelHandlerContext ctx, Position position, boolean filtered, Transaction transaction) {
         if (!filtered) {
-            postProcessHandler.handlePosition(position, ignore -> {
-                complete(position, IngestOutcome.stored(position.getId()));
-                positionLogger.log(ctx, position);
-                ctx.writeAndFlush(new AcknowledgementHandler.EventHandled(position));
-                processNextPosition(position.getDeviceId());
-            });
-        } else {
-            // A handler that stopped the position for its own reason (duplicate, storage failure) has already
-            // completed the ticket; otherwise a filter dropped it.
-            complete(position, IngestOutcome.rejected("filtered"));
-            ctx.writeAndFlush(new AcknowledgementHandler.EventHandled(position));
-            processNextPosition(position.getDeviceId());
+            try (var scope = transaction.bind()) {
+                postProcessHandler.handlePosition(position, ignore -> { });
+            }
         }
+        boolean committed = transaction.finish();
+        settle(position, filtered, committed);
+        if (committed && !filtered) {
+            positionLogger.log(ctx, position);
+        }
+        ctx.writeAndFlush(new AcknowledgementHandler.EventHandled(position));
+        processNextPosition(position.getDeviceId());
         cacheManager.removeDevice(position.getDeviceId(), position);
     }
 
-    private static void complete(Position position, IngestOutcome outcome) {
-        if (position.getIngestTicket() != null) {
-            position.getIngestTicket().complete(outcome);
+    /** Reports the outcome of a ticketed position, now that its transaction has finished. */
+    private static void settle(Position position, boolean filtered, boolean committed) {
+        var ticket = position.getIngestTicket();
+        if (ticket == null) {
+            return;
+        }
+        IngestOutcome decided = ticket.getDecided();
+        if (committed) {
+            if (decided != null) {
+                ticket.complete(decided);
+            } else {
+                ticket.complete(filtered ? IngestOutcome.rejected("filtered") : IngestOutcome.stored(position.getId()));
+            }
+        } else if (decided != null && (decided.status() == IngestOutcome.Status.DUPLICATE
+                || decided.status() == IngestOutcome.Status.REJECTED)) {
+            ticket.complete(decided); // known without writing anything
+        } else {
+            ticket.complete(IngestOutcome.failed("storage"));
         }
     }
 
@@ -241,7 +297,7 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
             next = queue.peek();
         }
         if (next != null) {
-            next.ctx().executor().execute(() -> processPositionHandlers(next.ctx(), next.position()));
+            next.ctx().executor().execute(() -> processPosition(next.ctx(), next.position()));
         }
     }
 

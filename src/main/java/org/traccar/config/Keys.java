@@ -717,6 +717,16 @@ public final class Keys {
             30);
 
     /**
+     * Milliseconds a server waits for another one to finish processing a position of the same device. On
+     * timeout the position fails and its sender retries. PostgreSQL only; other databases use their own
+     * lock wait setting.
+     */
+    public static final ConfigKey<Long> PROCESSING_LOCK_TIMEOUT = new LongConfigKey(
+            "processing.lockTimeout",
+            List.of(KeyType.CONFIG),
+            10000L);
+
+    /**
      * Record a receipt for single OsmAnd position requests too (`reportId` parameter, or the fix time and
      * coordinates), so a report sent live and again in an offline batch is stored once.
      */

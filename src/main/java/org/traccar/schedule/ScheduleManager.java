@@ -49,6 +49,7 @@ public class ScheduleManager implements LifecycleObject {
                 TaskExpirations.class,
                 TaskDeleteTemporary.class,
                 TaskDeleteReceipts.class,
+                TaskOutbox.class,
                 TaskReports.class,
                 TaskDeviceInactivityCheck.class,
                 TaskSessionTimeout.class,

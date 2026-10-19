@@ -261,8 +261,11 @@ public final class QueryBuilder implements AutoCloseable {
         try {
             logQuery();
 
-            connection.setAutoCommit(false);
-            streamingTransaction = true;
+            // A connection in a caller's transaction already streams; ending its transaction is not ours to do
+            if (ownsConnection) {
+                connection.setAutoCommit(false);
+                streamingTransaction = true;
+            }
             statement.setFetchSize(switch (databaseType) {
                 case "MySQL", "MariaDB" -> Integer.MIN_VALUE;
                 default -> config.getInteger(Keys.DATABASE_STREAM_FETCH_SIZE);

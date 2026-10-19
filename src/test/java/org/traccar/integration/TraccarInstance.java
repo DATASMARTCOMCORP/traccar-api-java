@@ -92,6 +92,10 @@ final class TraccarInstance implements AutoCloseable {
         }
     }
 
+    <T> T get(Class<T> type) {
+        return injector.getInstance(type);
+    }
+
     Storage storage() {
         return injector.getInstance(Storage.class);
     }

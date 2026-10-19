@@ -51,7 +51,6 @@ import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -96,11 +95,7 @@ public class OsmAndProtocolDecoder extends BaseHttpProtocolDecoder {
             if (!request.method().equals(HttpMethod.POST)) {
                 throw new IllegalArgumentException("Use POST.");
             }
-            Instant now = Instant.now();
-            var batch = OsmAndPositionBatch.parse(
-                    request.content().toString(StandardCharsets.UTF_8),
-                    now.minusSeconds(getConfig().getLong(Keys.INGEST_MAX_AGE)),
-                    now.plusSeconds(getConfig().getLong(Keys.INGEST_MAX_FUTURE)));
+            var batch = OsmAndPositionBatch.parse(request.content().toString(StandardCharsets.UTF_8));
             DeviceSession session = getDeviceSession(channel, remoteAddress, batch.deviceId());
             if (session == null) {
                 status = HttpResponseStatus.UNPROCESSABLE_ENTITY;

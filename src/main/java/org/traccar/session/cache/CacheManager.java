@@ -139,30 +139,70 @@ public class CacheManager implements BroadcastInterface {
                     new Columns.All(), new Condition.Equals("id", deviceId)));
             graph.addObject(device);
             initializeCache(device);
-            if (device.getPositionId() > 0) {
-                Position position = storage.getObject(Position.class, new Request(
-                        new Columns.All(),
-                        new Condition.And(
-                                new Condition.Equals("deviceId", deviceId),
-                                new Condition.Equals("id", device.getPositionId()))));
-                if (position != null) {
-                    var positions = devicePositions.computeIfAbsent(deviceId, k -> new ConcurrentLinkedDeque<>());
-                    if (config.getBoolean(Keys.REPORT_TRIP_NEW_LOGIC)) {
-                        long minDuration = AttributeUtil.lookup(this, Keys.REPORT_TRIP_MIN_DURATION, deviceId) * 1000;
-                        var from = new Date(position.getFixTime().getTime() - minDuration);
-                        var to = position.getFixTime();
-                        try (var positionsStream =
-                                PositionUtil.getPositionsStreamWithExtra(storage, deviceId, from, to)) {
-                            positionsStream.forEach(loaded -> appendPosition(positions, loaded));
-                        }
-                    } else {
-                        positions.add(position);
-                    }
-                }
-            }
+            loadPositions(device);
         }
         references.add(key);
         LOGGER.debug("Cache add device {} references {} key {}", deviceId, references.size(), key);
+    }
+
+    private void loadPositions(Device device) throws StorageException {
+        long deviceId = device.getId();
+        if (device.getPositionId() > 0) {
+            Position position = storage.getObject(Position.class, new Request(
+                    new Columns.All(),
+                    new Condition.And(
+                            new Condition.Equals("deviceId", deviceId),
+                            new Condition.Equals("id", device.getPositionId()))));
+            if (position != null) {
+                var positions = devicePositions.computeIfAbsent(deviceId, k -> new ConcurrentLinkedDeque<>());
+                if (config.getBoolean(Keys.REPORT_TRIP_NEW_LOGIC)) {
+                    long minDuration = AttributeUtil.lookup(this, Keys.REPORT_TRIP_MIN_DURATION, deviceId) * 1000;
+                    var from = new Date(position.getFixTime().getTime() - minDuration);
+                    var to = position.getFixTime();
+                    try (var positionsStream =
+                            PositionUtil.getPositionsStreamWithExtra(storage, deviceId, from, to)) {
+                        positionsStream.forEach(loaded -> appendPosition(positions, loaded));
+                    }
+                } else {
+                    positions.add(position);
+                }
+            }
+        }
+    }
+
+    /**
+     * Replaces this server's processing state of a cached device (latest positions, motion and overspeed
+     * state) with the stored one. Called while the device is locked for processing, so the stored state is
+     * authoritative: another server may have advanced it, or a rolled back transaction may have left this
+     * cache ahead of the database.
+     */
+    public synchronized void reloadDevice(long deviceId) throws StorageException {
+        Device cached = graph.getObject(Device.class, deviceId);
+        if (cached == null) {
+            return;
+        }
+        Device stored = storage.getObject(Device.class, new Request(
+                new Columns.All(), new Condition.Equals("id", deviceId)));
+        if (stored == null) {
+            return;
+        }
+        cached.setPositionId(stored.getPositionId());
+        cached.setMotionStreak(stored.getMotionStreak());
+        cached.setMotionState(stored.getMotionState());
+        cached.setMotionPositionId(stored.getMotionPositionId());
+        cached.setMotionTime(stored.getMotionTime());
+        cached.setMotionDistance(stored.getMotionDistance());
+        cached.setMotionLatitude(stored.getMotionLatitude());
+        cached.setMotionLongitude(stored.getMotionLongitude());
+        cached.setOverspeedState(stored.getOverspeedState());
+        cached.setOverspeedTime(stored.getOverspeedTime());
+        cached.setOverspeedGeofenceId(stored.getOverspeedGeofenceId());
+
+        Position latest = getPosition(deviceId);
+        if ((latest != null ? latest.getId() : 0) != stored.getPositionId()) {
+            devicePositions.remove(deviceId);
+            loadPositions(stored);
+        }
     }
 
     public synchronized void removeDevice(long deviceId, Object key) {

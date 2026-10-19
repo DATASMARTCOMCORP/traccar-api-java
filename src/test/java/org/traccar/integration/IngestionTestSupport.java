@@ -57,6 +57,9 @@ abstract class IngestionTestSupport {
     String jdbcUrl;
     HttpServer webhook;
     final List<JsonNode> forwarded = new CopyOnWriteArrayList<>();
+    final List<JsonNode> forwardedPositions = new CopyOnWriteArrayList<>();
+    /** What the webhook answers; deliveries are recorded only when it accepts them. */
+    volatile int webhookStatus = 200;
     private final Semaphore forwardedPermits = new Semaphore(0);
     private int forwardedSeen;
     final List<TraccarInstance> instances = new ArrayList<>();
@@ -103,10 +106,19 @@ abstract class IngestionTestSupport {
         jdbcUrl = createDatabase();
         webhook = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         webhook.createContext("/events", exchange -> {
-            forwarded.add(JSON.readTree(exchange.getRequestBody()));
+            int status = webhookStatus;
+            JsonNode body = JSON.readTree(exchange.getRequestBody());
+            exchange.sendResponseHeaders(status, -1);
+            exchange.close();
+            if (status == 200) {
+                forwarded.add(body);
+                forwardedPermits.release();
+            }
+        });
+        webhook.createContext("/positions", exchange -> {
+            forwardedPositions.add(JSON.readTree(exchange.getRequestBody()));
             exchange.sendResponseHeaders(200, -1);
             exchange.close();
-            forwardedPermits.release();
         });
         webhook.start();
     }
@@ -298,6 +310,21 @@ abstract class IngestionTestSupport {
             }
             forwardedSeen = total;
         }
+    }
+
+    /** Waits for a condition that asynchronous deliveries make true; fails after 10 seconds. */
+    static void await(java.util.function.BooleanSupplier condition, String description) {
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (!condition.getAsBoolean()) {
+            if (System.nanoTime() > deadline) {
+                throw new AssertionError("timed out waiting for " + description);
+            }
+            Thread.onSpinWait();
+        }
+    }
+
+    String positionsUrl() {
+        return "http://127.0.0.1:" + webhook.getAddress().getPort() + "/positions";
     }
 
     static JsonNode body(java.net.http.HttpResponse<String> response) throws Exception {

@@ -471,7 +471,7 @@ class OutOfOrderIngestionTest extends IngestionTestSupport {
                 routeItem(2, 0))));
         assertEquals(200, response.statusCode(), "every item has a final outcome");
         assertEquals(5, body(response).get("accepted").asInt());
-        assertEquals(List.of("rejected", "rejected", "rejected", "rejected", "stored"), statuses(response));
+        assertEquals(List.of("quarantined", "quarantined", "rejected", "rejected", "stored"), statuses(response));
         assertEquals("too old", body(response).at("/results/0/reason").asText());
         assertEquals("future", body(response).at("/results/1/reason").asText());
         assertEquals("invalid", body(response).at("/results/2/reason").asText());

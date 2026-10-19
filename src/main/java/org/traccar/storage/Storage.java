@@ -105,4 +105,24 @@ public abstract class Storage {
         return true;
     }
 
+    /**
+     * Starts the transaction that processes one position of a device. It holds the device's lock until it
+     * finishes, so positions of one device are processed one at a time across all servers.
+     */
+    public Transaction begin(long deviceId) throws StorageException {
+        return new Transaction();
+    }
+
+    /** The transaction bound to the current thread, or null. */
+    public Transaction current() {
+        return null;
+    }
+
+    /**
+     * Runs SQL on the connection of the current transaction, or on its own auto-commit connection.
+     */
+    public <R> R execute(SqlWork<R> work) throws StorageException {
+        throw new StorageException("SQL is not supported by this storage");
+    }
+
 }

@@ -62,10 +62,10 @@ final class OsmAndPositionBatch {
     }
 
     /**
-     * Parses a batch. Fixes older than {@code oldest} or newer than {@code newest} are rejected, as are items
-     * without a usable time, coordinates or id; those answers are final so they never block the sender's queue.
+     * Parses a batch. Items without a usable time, coordinates or id are rejected; that answer is final, so they
+     * never block the sender's queue. The accepted age is checked later, for single requests too (ReceiptHandler).
      */
-    static Batch parse(String body, Instant oldest, Instant newest) {
+    static Batch parse(String body) {
         JsonObject root;
         try (var reader = Json.createReader(new StringReader(body))) {
             root = reader.readObject();
@@ -100,14 +100,6 @@ final class OsmAndPositionBatch {
             String id = id(item.get("id"), time, lat, lon);
             if (id == null) {
                 items.add(rejected(index, null, "invalid id"));
-                continue;
-            }
-            if (time.isBefore(oldest)) {
-                items.add(rejected(index, id, "too old"));
-                continue;
-            }
-            if (time.isAfter(newest)) {
-                items.add(rejected(index, id, "future"));
                 continue;
             }
             Item original = seen.get(id);

@@ -25,9 +25,9 @@ public class OsmAndProtocolDecoderTest extends ProtocolTest {
     }
 
     @Test
-    public void testDecodeBatchRejectsOldFixes() throws Exception {
+    public void testDecodeBatchLeavesTheAgePolicyToProcessing() throws Exception {
         var decoder = inject(new OsmAndProtocolDecoder(null));
-        verifyNull(decoder, request(HttpMethod.POST, "/api/positions/batch",
+        verifyPositions(decoder, request(HttpMethod.POST, "/api/positions/batch",
                 new ReadOnlyHttpHeaders(true, "Content-Type", "application/json"), buffer(
                 """
                 {"deviceId":"123456","positions":[{"timestamp":1700000000,"lat":60.1,"lon":30.1}]}
