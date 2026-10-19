@@ -789,11 +789,23 @@ public class SuntechProtocolDecoder extends BaseProtocolDecoder {
         }
 
         if (BitUtil.check(mask, 11)) {
-            position.setLatitude(BufferUtil.readSignedMagnitudeInt(buf) / 1000000.0);
+            int readerIndex = buf.readerIndex();
+            try {
+                position.setLatitude(buf.readInt() / 1000000.0);
+            } catch (IllegalArgumentException e) {
+                buf.readerIndex(readerIndex);
+                position.setLatitude(BufferUtil.readSignedMagnitudeInt(buf) / 1000000.0);
+            }
         }
 
         if (BitUtil.check(mask, 12)) {
-            position.setLongitude(BufferUtil.readSignedMagnitudeInt(buf) / 1000000.0);
+            int readerIndex = buf.readerIndex();
+            try {
+                position.setLongitude(buf.readInt() / 1000000.0);
+            } catch (IllegalArgumentException e) {
+                buf.readerIndex(readerIndex);
+                position.setLongitude(BufferUtil.readSignedMagnitudeInt(buf) / 1000000.0);
+            }
         }
 
         if (BitUtil.check(mask, 13)) {
