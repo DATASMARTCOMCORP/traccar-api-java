@@ -31,6 +31,7 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/notify"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/all"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/reports"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/schedule"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/store"
 )
 
@@ -114,6 +115,7 @@ func run(ctx context.Context, args []string, stderr io.Writer) error {
 	defer stopProc()
 	go proc.Run(procCtx)
 	go hub.Run(procCtx)
+	schedule.New(cfg, st, notifier, slog.Default()).Run(procCtx)
 
 	apiOpts, err := api.OptionsFromConfig(cfg)
 	if err != nil {

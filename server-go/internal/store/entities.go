@@ -288,3 +288,13 @@ func (s *Store) ResetDeviceStatuses(ctx context.Context) error {
 func (s *Store) UpdateUserPassword(ctx context.Context, u *model.User) error {
 	return s.update(ctx, "tc_users", u.ID, []string{"hashedpassword", "salt"}, []any{u.HashedPassword, u.Salt})
 }
+
+// DeleteExpiredTemporaryUsers removes temporary users (shares) whose expiration time has
+// passed (TaskDeleteTemporary); their links go with them.
+func (s *Store) DeleteExpiredTemporaryUsers(ctx context.Context, now model.Time) error {
+	_, err := s.pool.Exec(ctx, "DELETE FROM tc_users WHERE temporary = $1 AND expirationtime < $2", true, s.ts(&now))
+	if err != nil {
+		return fmt.Errorf("delete temporary users: %w", err)
+	}
+	return nil
+}

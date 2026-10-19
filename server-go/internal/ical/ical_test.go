@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"compress/gzip"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -74,4 +76,58 @@ func check(t *testing.T, path string) {
 		}
 	}
 	t.Logf("%s: %d checks, %d mismatches", path, n, failures)
+}
+
+// TestJavaPeriods checks FindPeriods against Calendar.findPeriods, recorded by
+// recorder/Periods.java from vectors.tsv.gz (the occurrences, the errors and a tenth of
+// the empty answers).
+func TestJavaPeriods(t *testing.T) {
+	f, err := os.Open("testdata/periods.tsv.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sp, err := time.LoadLocation("America/Sao_Paulo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := Options{DefaultZone: sp, FirstDayOfWeek: time.Sunday}
+	cache := map[string]*Calendar{}
+	sc := bufio.NewScanner(zr)
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	n, failures := 0, 0
+	for sc.Scan() {
+		fields := strings.Split(sc.Text(), "\t")
+		cal := cache[fields[0]]
+		if cal == nil {
+			data, _ := base64.StdEncoding.DecodeString(fields[0])
+			if cal, err = Parse(data); err != nil {
+				t.Fatal(err)
+			}
+			cache[fields[0]] = cal
+		}
+		ms, _ := strconv.ParseInt(fields[1], 10, 64)
+		periods, err := cal.FindPeriods(time.UnixMilli(ms), opts)
+		var parts []string
+		for _, p := range periods {
+			parts = append(parts, fmt.Sprintf("%d-%d", p.Start.UnixMilli(), p.End.UnixMilli()))
+		}
+		sort.Strings(parts)
+		got := strings.Join(parts, ",")
+		if err != nil {
+			got = "ERR"
+		}
+		n++
+		if got != fields[2] {
+			if failures++; failures <= 10 {
+				data, _ := base64.StdEncoding.DecodeString(fields[0])
+				t.Errorf("%s: got %q, Java %q\n%s", time.UnixMilli(ms).UTC(), got, fields[2], data)
+			}
+		}
+	}
+	t.Logf("%d checks, %d mismatches", n, failures)
 }

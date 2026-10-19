@@ -82,8 +82,8 @@ func stringOr(s *string, def string) string {
 	return def
 }
 
-// context is prepareContext plus formatMessage's objects.
-func (f *Formatter) context(in Input) velocity.Context {
+// prepare is TextTemplateFormatter.prepareContext.
+func (f *Formatter) prepare(server *model.Server, user *model.User) velocity.Context {
 	ctx := velocity.Context{}
 	put := func(k string, v any) {
 		if v != nil {
@@ -94,15 +94,15 @@ func (f *Formatter) context(in Input) velocity.Context {
 	if zone == nil {
 		zone = time.Local
 	}
-	if in.User != nil {
-		put("user", userBean(in.User))
+	if user != nil {
+		put("user", userBean(user))
 		tz := zone
-		if id := lookupString(in.Server, in.User, "timezone"); id != nil {
+		if id := lookupString(server, user, "timezone"); id != nil {
 			tz = javatime.TimeZone(*id)
 		}
 		put("timezone", velocity.TimeZone{Location: tz})
 		if f.Token != nil {
-			if token, err := f.Token(in.User.ID); err == nil {
+			if token, err := f.Token(user.ID); err == nil {
 				put("token", token)
 			}
 		}
@@ -112,10 +112,20 @@ func (f *Formatter) context(in Input) velocity.Context {
 	put("esc", velocity.EscapeTool{})
 	put("numberTool", velocity.NumberTool{})
 	put("locale", velocity.Locale("en_US"))
-	if lang := lookupString(in.Server, in.User, "language"); lang != nil {
+	if lang := lookupString(server, user, "language"); lang != nil {
 		put("language", *lang)
 	}
+	return ctx
+}
 
+// context is prepareContext plus formatMessage's objects.
+func (f *Formatter) context(in Input) velocity.Context {
+	ctx := f.prepare(in.Server, in.User)
+	put := func(k string, v any) {
+		if v != nil {
+			ctx[k] = v
+		}
+	}
 	put("notification", notificationBean(in.Notification))
 	put("device", deviceBean(in.Device))
 	put("event", eventBean(in.Event))
@@ -157,6 +167,37 @@ func (f *Formatter) Format(in Input) (Message, error) {
 		return Message{Subject: &name, Digest: name, Body: name, Priority: priority}, nil
 	}
 	return renderFile(path, ctx, priority)
+}
+
+// TextExtra are the variables a text template gets besides prepareContext's.
+type TextExtra struct {
+	Expiration model.Time    // $expiration (expiration mails)
+	Device     *model.Device // $device (device expiration mails)
+	ReportURL  string        // $reportUrl (scheduled reports)
+}
+
+// Text is TextTemplateFormatter.formatMessage: the named template in the user's language
+// or English, without the notification's objects and translations.
+func (f *Formatter) Text(server *model.Server, user *model.User, name string, x TextExtra) (Message, error) {
+	ctx := f.prepare(server, user)
+	if !x.Expiration.IsZero() {
+		ctx["expiration"] = velocity.NewDate(x.Expiration.Time)
+	}
+	if x.Device != nil {
+		ctx["device"] = deviceBean(x.Device)
+	}
+	if x.ReportURL != "" {
+		ctx["reportUrl"] = x.ReportURL
+	}
+	lang, _ := ctx["language"].(string)
+	if lang != "" && !languagePattern.MatchString(lang) {
+		return Message{}, errInvalidLanguage
+	}
+	path := f.templateFile(lang, name+".vm")
+	if path == "" {
+		return Message{Subject: &name, Digest: name, Body: name}, nil
+	}
+	return renderFile(path, ctx, false)
 }
 
 // templateFile is LocaleManager.getTemplateFile for notifications ("" when none).

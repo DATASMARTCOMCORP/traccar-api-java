@@ -709,8 +709,27 @@ formula. Java orders the CSV's attribute columns by an immutable set's per-JVM h
 Go puts them in first-seen order and the harness compares the columns by name. A missing
 date or device is a 400 (Java's `NullPointerException`).
 
+**Scheduled tasks (done):** `internal/schedule` runs the single-instance tasks at Java's
+rates, and none on a `broadcast.secondary` server:
+- temporary users removed once expired (hourly);
+- `deviceInactive` events from `deviceInactivityStart` and `deviceInactivityPeriod`, from
+  the device or up its group chain (every 15 minutes);
+- user and device expiration mails, with reminders (hourly);
+- scheduled reports: a calendar period that ended in the last 15 minutes mails the
+  report's users a link to the web app's report and writes a `scheduled` audit row;
+- the systemd watchdog (`NOTIFY_SOCKET` and `WATCHDOG_USEC`), through `/api/health` after
+  the first hour.
+The other tasks were already ported: the status reset at startup, the idle-session sweep
+and the socket keepalive.
+
+`ical.FindPeriods` (Calendar.findPeriods) matches 9,362 answers recorded from Java by
+`ical/recorder`. The harness can't drive tasks that first run 15 to 60 minutes after
+start, so there are unit tests for the triggers. A database test,
+`SCHEDULE_TEST_DB=jdbc:postgresql://... go test ./internal/schedule`, runs each task once.
+Deviation: an unexpected exception kills a Java task until restart (its executor
+suppresses later runs). Go logs the error and runs the task again next period.
+
 Not done yet in Step 9:
-- scheduled tasks;
 - `/api/notifications/test`, password-reset mail;
 - the firebase, traccar, telegram, whatsapp and pushover notificators (production's types
   include firebase, but no notification uses it);

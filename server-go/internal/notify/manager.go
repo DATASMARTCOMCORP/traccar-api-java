@@ -119,6 +119,16 @@ func (m *Manager) MailReport(u *model.User, data []byte) error {
 		&attachment{"report.xlsx", data}, func() { m.count(m.Hooks.MailSent) })
 }
 
+// MailText mails a text template (TextTemplateFormatter and MailManager): the expiration
+// mails (system mail) and scheduled report links.
+func (m *Manager) MailText(server *model.Server, u *model.User, system bool, name string, x TextExtra) error {
+	msg, err := m.format.Text(server, u, name, x)
+	if err != nil {
+		return err
+	}
+	return m.mail.send(u, system, msg.Subject, msg.Body, nil, func() { m.count(m.Hooks.MailSent) })
+}
+
 func (m *Manager) count(f func()) {
 	if f != nil {
 		f()

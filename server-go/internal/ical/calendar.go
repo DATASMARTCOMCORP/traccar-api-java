@@ -180,6 +180,44 @@ func (c *Calendar) Contains(moment time.Time, opts Options) (bool, error) {
 	return found, nil
 }
 
+// Period is an occurrence of an event, as instants.
+type Period struct{ Start, End time.Time }
+
+// FindPeriods is Calendar.findPeriods: the occurrences of every VEVENT at the moment, as
+// a set of instants.
+func (c *Calendar) FindPeriods(moment time.Time, opts Options) ([]Period, error) {
+	cmp := comparator{defaultZone: opts.defaultZone()}
+	var out []Period
+	for _, e := range c.events {
+		set, override, err := e.periods(moment, opts, cmp)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range set {
+			q := Period{p.start.toInstant(override), p.end.toInstant(override)}
+			if !slices.ContainsFunc(out, func(o Period) bool { return o.Start.Equal(q.Start) && o.End.Equal(q.End) }) {
+				out = append(out, q)
+			}
+		}
+	}
+	return out, nil
+}
+
+// toInstant is Traccar's temporalToInstant: a zoned value in the override zone when set,
+// floating values and dates in UTC.
+func (t temporal) toInstant(override *zone) time.Time {
+	switch t.kind {
+	case kindZoned:
+		if override != nil {
+			return ofLocal(t.local, override, nil).instant()
+		}
+		return t.instant()
+	case kindOffset:
+		return t.instant()
+	}
+	return t.local
+}
+
 // zoneOf resolves a TZID as ical4j's global registry does: a zone id Java knows, with
 // ical4j's rules for it.
 func zoneOf(tzid string) (*zone, error) {
@@ -369,16 +407,23 @@ func (c comparator) toLocalTime(t temporal) temporal {
 	return t
 }
 
-// contains is checkMoment for one VEVENT: the moment, converted to the class of DTSTART,
-// as a zero-length period, and Component.calculateRecurrenceSet with it.
+// contains is checkMoment for one VEVENT.
 func (e *event) contains(moment time.Time, opts Options, cmp comparator) (bool, error) {
+	set, _, err := e.periods(moment, opts, cmp)
+	return len(set) > 0, err
+}
+
+// periods is findPeriods for one VEVENT: the moment, converted to the class of DTSTART,
+// as a zero-length period, and Component.calculateRecurrenceSet with it. override is the
+// TZID zone Traccar resolves (nil when none).
+func (e *event) periods(moment time.Time, opts Options, cmp comparator) (set []period, override *zone, err error) {
 	startProp := e.first("DTSTART")
 	if startProp == nil {
-		return false, errors.New("VEVENT without DTSTART")
+		return nil, nil, errors.New("VEVENT without DTSTART")
 	}
 	start, err := dateValue(*startProp)
 	if err != nil {
-		return false, err
+		return nil, nil, err
 	}
 	wf := opts.localeWeek()
 
@@ -394,9 +439,9 @@ func (e *event) contains(moment time.Time, opts Options, cmp comparator) (bool, 
 		q = temporal{kind: kindOffset, local: moment.UTC().Add(time.Duration(start.offset) * time.Second), offset: start.offset}
 	case kindZoned:
 		if tzid := startProp.params["TZID"]; javatime.IsZoneID(tzid) {
-			override, err := javaZone(tzid)
+			override, err = javaZone(tzid)
 			if err != nil {
-				return false, err
+				return nil, nil, err
 			}
 			local := ofInstant(moment, override).local
 			q = ofLocal(local, start.zone, nil)
@@ -408,23 +453,22 @@ func (e *event) contains(moment time.Time, opts Options, cmp comparator) (bool, 
 
 	duration, err := e.duration(start)
 	if err != nil {
-		return false, err
+		return nil, nil, err
 	}
 
-	// The recurrence set (a TreeSet in Java). Only whether it ends up empty matters, and
-	// equal periods are removed together, so duplicates can stay.
-	var set []period
+	// The recurrence set (a TreeSet in Java). Equal periods are removed together, so
+	// duplicates can stay until FindPeriods collects the instants.
 	add := func(p period) { set = append(set, p) }
 	for _, p := range e.all("RDATE") {
 		if strings.EqualFold(p.params["VALUE"], "PERIOD") {
 			periods, err := periodList(p)
 			if err != nil {
-				return false, err
+				return nil, nil, err
 			}
 			for _, rp := range periods {
 				ok, err := query.intersects(rp, cmp)
 				if err != nil {
-					return false, err
+					return nil, nil, err
 				}
 				if ok {
 					add(rp)
@@ -434,17 +478,17 @@ func (e *event) contains(moment time.Time, opts Options, cmp comparator) (bool, 
 		}
 		dates, err := dateList(p)
 		if err != nil {
-			return false, err
+			return nil, nil, err
 		}
 		for _, d := range dates {
 			ok, err := query.includes(d, cmp)
 			if err != nil {
-				return false, err
+				return nil, nil, err
 			}
 			if ok {
 				rp, err := newPeriod(d, duration, wf)
 				if err != nil {
-					return false, err
+					return nil, nil, err
 				}
 				add(rp)
 			}
@@ -453,23 +497,23 @@ func (e *event) contains(moment time.Time, opts Options, cmp comparator) (bool, 
 
 	startMinus, err := q.add(duration.negated(), wf)
 	if err != nil {
-		return false, err
+		return nil, nil, err
 	}
 	rrules := e.all("RRULE")
 	if len(rrules) > 0 {
 		for _, p := range rrules {
 			r, err := parseRecur(p.value, opts)
 			if err != nil {
-				return false, err
+				return nil, nil, err
 			}
 			dates, err := r.dates(start, startMinus, q, cmp)
 			if err != nil {
-				return false, err
+				return nil, nil, err
 			}
 			for _, d := range dates {
 				rp, err := newPeriod(d, duration, wf)
 				if err != nil {
-					return false, err
+					return nil, nil, err
 				}
 				add(rp)
 			}
@@ -477,11 +521,11 @@ func (e *event) contains(moment time.Time, opts Options, cmp comparator) (bool, 
 	} else {
 		initial, err := newPeriod(start, duration, wf)
 		if err != nil {
-			return false, err
+			return nil, nil, err
 		}
 		ok, err := query.intersects(initial, cmp)
 		if err != nil {
-			return false, err
+			return nil, nil, err
 		}
 		if ok {
 			add(initial)
@@ -492,7 +536,7 @@ func (e *event) contains(moment time.Time, opts Options, cmp comparator) (bool, 
 	for _, p := range e.all("EXDATE") {
 		dates, err := dateList(p)
 		if err != nil {
-			return false, err
+			return nil, nil, err
 		}
 		exdates = append(exdates, dates...)
 	}
@@ -500,23 +544,23 @@ func (e *event) contains(moment time.Time, opts Options, cmp comparator) (bool, 
 	for _, p := range e.all("EXRULE") {
 		r, err := parseRecur(p.value, opts)
 		if err != nil {
-			return false, err
+			return nil, nil, err
 		}
 		dates, err := r.dates(start, startMinus, q, cmp)
 		if err != nil {
-			return false, err
+			return nil, nil, err
 		}
 		var excluded []period
 		for _, d := range dates {
 			rp, err := newPeriod(d, duration, wf)
 			if err != nil {
-				return false, err
+				return nil, nil, err
 			}
 			excluded = append(excluded, rp)
 		}
 		set = slices.DeleteFunc(set, func(p period) bool { return slices.ContainsFunc(excluded, p.equals) })
 	}
-	return len(set) > 0, nil
+	return set, override, nil
 }
 
 // duration is RecurrenceSet.Builder's: DURATION, else DTEND minus DTSTART, else zero

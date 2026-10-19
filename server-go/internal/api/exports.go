@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/geo"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/javatime"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/model"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/kit"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/store"
@@ -251,28 +252,6 @@ func (a *API) exportCSV(w http.ResponseWriter, r *request) error {
 	return err
 }
 
-// isoOffset is DateTimeFormatter.ISO_OFFSET_DATE_TIME in the server's zone.
-func isoOffset(t time.Time) string {
-	t = t.In(time.Local)
-	s := t.Format("2006-01-02T15:04:05")
-	if ns := t.Nanosecond(); ns != 0 {
-		s += strings.TrimRight(fmt.Sprintf(".%09d", ns), "0")
-	}
-	_, off := t.Zone()
-	if off == 0 {
-		return s + "Z"
-	}
-	sign := '+'
-	if off < 0 {
-		sign, off = '-', -off
-	}
-	s += fmt.Sprintf("%c%02d:%02d", sign, off/3600, off/60%60)
-	if off%60 != 0 {
-		s += fmt.Sprintf(":%02d", off%60)
-	}
-	return s
-}
-
 // exportGPX is GpxExportProvider: one track segment of the positions.
 func (a *API) exportGPX(w http.ResponseWriter, r *request) error {
 	deviceID, _, _, positions, err := a.exportQuery(r)
@@ -289,7 +268,7 @@ func (a *API) exportGPX(w http.ResponseWriter, r *request) error {
 	b.WriteString("</name><trkseg>")
 	for _, p := range positions {
 		fmt.Fprintf(&b, `<trkpt lat="%s" lon="%s"><ele>%s</ele><time>%s</time></trkpt>`,
-			model.JavaToString(p.Latitude), model.JavaToString(p.Longitude), model.JavaToString(p.Altitude), isoOffset(p.FixTime.Time))
+			model.JavaToString(p.Latitude), model.JavaToString(p.Longitude), model.JavaToString(p.Altitude), javatime.FormatISOOffset(p.FixTime.Time.In(time.Local)))
 	}
 	b.WriteString("</trkseg></trk></gpx>")
 	w.Header().Set("Content-Type", "application/gpx+xml")
