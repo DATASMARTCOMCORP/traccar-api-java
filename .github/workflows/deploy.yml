@@ -76,6 +76,19 @@ jobs:
             ServerAliveCountMax 4
           SSH
           echo "RELEASE_DIR=/tmp/sir-tracker-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+      - name: Check remote deployment tools
+        run: |
+          set -euo pipefail
+          ssh sir-production 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          for tool in rsync curl python3 flock sha256sum; do
+            command -v "$tool" >/dev/null || {
+              echo "Missing server prerequisite: $tool. Install it before retrying deployment." >&2
+              exit 1
+            }
+          done
+          sudo -n true
+          REMOTE
       - name: Stage and verify release
         run: |
           set -euo pipefail
