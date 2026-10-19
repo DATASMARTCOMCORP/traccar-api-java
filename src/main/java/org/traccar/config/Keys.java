@@ -727,6 +727,33 @@ public final class Keys {
             10000L);
 
     /**
+     * Threads that process positions. Each device always uses the same one, so a device waiting for its lock
+     * delays only the devices sharing its thread.
+     */
+    public static final ConfigKey<Integer> PROCESSING_WORKERS = new IntegerConfigKey(
+            "processing.workers",
+            List.of(KeyType.CONFIG),
+            16);
+
+    /**
+     * Positions waiting per processing thread before the connections sending to it stop being read. At twice
+     * this many, positions are refused (a batch item reports "failed" and is retried by its sender).
+     */
+    public static final ConfigKey<Integer> PROCESSING_QUEUE_LIMIT = new IntegerConfigKey(
+            "processing.queueLimit",
+            List.of(KeyType.CONFIG),
+            1000);
+
+    /**
+     * Milliseconds an outbox delivery attempt owns its entry. Another attempt may take the entry once this
+     * passes, so it must exceed the HTTP client timeouts, or a slow delivery is sent twice.
+     */
+    public static final ConfigKey<Long> OUTBOX_LEASE = new LongConfigKey(
+            "outbox.lease",
+            List.of(KeyType.CONFIG),
+            60000L);
+
+    /**
      * Record a receipt for single OsmAnd position requests too (`reportId` parameter, or the fix time and
      * coordinates), so a report sent live and again in an offline batch is stored once.
      */

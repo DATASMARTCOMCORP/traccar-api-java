@@ -44,8 +44,6 @@ public class PositionForwardingHandler extends BasePositionHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(PositionForwardingHandler.class);
 
-    private static final long DELIVERY_LEASE = 60_000;
-
     private final CacheManager cacheManager;
     private final Timer timer;
 
@@ -158,7 +156,7 @@ public class PositionForwardingHandler extends BasePositionHandler {
 
     private void deliver(OutboxStore.Entry entry, PositionData positionData) {
         try {
-            if (!outbox.claim(entry, DELIVERY_LEASE)) {
+            if (!outbox.claim(entry)) {
                 return;
             }
         } catch (StorageException e) {

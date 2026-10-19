@@ -2,6 +2,10 @@ package org.traccar.database;
 
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.traccar.config.Config;
+import org.traccar.config.Keys;
 import org.traccar.storage.Storage;
 import org.traccar.storage.StorageException;
 
@@ -29,11 +33,20 @@ public class OutboxStore {
 
     public record Entry(long id, String kind, long deviceId, long objectId, int attempts) { }
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(OutboxStore.class);
+
     private final Storage storage;
+    private final long lease;
 
     @Inject
-    public OutboxStore(Storage storage) {
+    public OutboxStore(Config config, Storage storage) {
         this.storage = storage;
+        lease = config.getLong(Keys.OUTBOX_LEASE);
+        long timeouts = config.getInteger(Keys.CLIENT_CONNECT_TIMEOUT) + config.getInteger(Keys.CLIENT_READ_TIMEOUT);
+        if (lease <= timeouts) {
+            LOGGER.warn("outbox.lease ({} ms) does not exceed the HTTP client timeouts ({} ms):"
+                    + " slow deliveries may be sent twice", lease, timeouts);
+        }
     }
 
     private static Timestamp now(long offsetMillis) {
@@ -59,13 +72,13 @@ public class OutboxStore {
         });
     }
 
-    /** Takes a delivery for {@code leaseMillis}; false when another attempt holds it or it is done. */
-    public boolean claim(Entry entry, long leaseMillis) throws StorageException {
+    /** Takes a delivery for the lease time; false when another attempt holds it or it is done. */
+    public boolean claim(Entry entry) throws StorageException {
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
                     "UPDATE tc_outbox SET claimeduntil = ?, attempts = attempts + 1"
                             + " WHERE id = ? AND deliveredat IS NULL AND (claimeduntil IS NULL OR claimeduntil < ?)")) {
-                statement.setTimestamp(1, now(leaseMillis));
+                statement.setTimestamp(1, now(lease));
                 statement.setLong(2, entry.id());
                 statement.setTimestamp(3, now(0));
                 return statement.executeUpdate() == 1;

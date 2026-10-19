@@ -24,6 +24,7 @@ import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.traccar.config.Config;
+import org.traccar.config.Keys;
 import org.traccar.database.BufferingManager;
 import org.traccar.database.IngestOutcome;
 import org.traccar.database.NotificationManager;
@@ -88,6 +89,7 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
     private final NotificationManager notificationManager;
     private final PositionLogger positionLogger;
     private final BufferingManager bufferingManager;
+    private final ProcessingWorkers workers;
     private final List<BasePositionHandler> positionHandlers;
     private final List<BaseEventHandler> eventHandlers;
     private final PostProcessHandler postProcessHandler;
@@ -110,6 +112,7 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
         this.notificationManager = notificationManager;
         this.positionLogger = positionLogger;
         bufferingManager = new BufferingManager(config, this);
+        workers = new ProcessingWorkers(config);
 
         positionHandlers = Stream.of(
                 ReceiptHandler.class,
@@ -153,6 +156,21 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
                 .toList();
 
         postProcessHandler = injector.getInstance(PostProcessHandler.class);
+
+        // These wait for HTTP services while the device is locked and a database connection is held
+        var online = positionHandlers.stream()
+                .filter(handler -> handler instanceof GeolocationHandler || handler instanceof MapMatcherHandler
+                        || handler instanceof SpeedLimitHandler
+                        || handler instanceof GeocoderHandler
+                        && !"pluscodes".equals(config.getString(Keys.GEOCODER_TYPE))
+                        && !config.getBoolean(Keys.GEOCODER_IGNORE_POSITIONS))
+                .map(handler -> handler.getClass().getSimpleName())
+                .toList();
+        if (!online.isEmpty()) {
+            LOGGER.warn("Online lookups run inside the per-device transaction: {}. Each slow lookup delays its"
+                    + " processing worker and holds a database connection; size database.maxPoolSize and"
+                    + " processing.workers for it, or geocode on request (geocoder.ignorePositions).", online);
+        }
     }
 
     @Override
@@ -167,6 +185,13 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
 
     @Override
     public void onReleased(ChannelHandlerContext context, Position position) {
+        var worker = workers.of(position.getDeviceId());
+        if (!worker.admit(context.channel())) {
+            fail(position, "busy");
+            context.writeAndFlush(new AcknowledgementHandler.EventHandled(position));
+            cacheManager.removeDevice(position.getDeviceId(), position);
+            return;
+        }
         Queue<QueuedPosition> queue = getQueue(position.getDeviceId());
         boolean queued;
         synchronized (queue) {
@@ -174,7 +199,7 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
             queue.offer(new QueuedPosition(context, position));
         }
         if (!queued) {
-            processPosition(context, position);
+            worker.execute(() -> processPosition(context, position));
         }
     }
 
@@ -189,10 +214,11 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
             transaction = storage.begin(position.getDeviceId());
         } catch (StorageException e) {
             LOGGER.warn("Failed to lock device {}", position.getDeviceId(), e);
-            settle(position, false, false);
+            fail(position, "lock");
             ctx.writeAndFlush(new AcknowledgementHandler.EventHandled(position));
             processNextPosition(position.getDeviceId());
             cacheManager.removeDevice(position.getDeviceId(), position);
+            workers.of(position.getDeviceId()).release();
             return;
         }
         try (var scope = transaction.bind()) {
@@ -225,11 +251,7 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
                             }
                         }
                     };
-                    if (ctx.executor().inEventLoop()) {
-                        continuation.run();
-                    } else {
-                        ctx.executor().execute(continuation);
-                    }
+                    workers.of(position.getDeviceId()).run(continuation);
                 }
             });
         }
@@ -266,6 +288,13 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
         ctx.writeAndFlush(new AcknowledgementHandler.EventHandled(position));
         processNextPosition(position.getDeviceId());
         cacheManager.removeDevice(position.getDeviceId(), position);
+        workers.of(position.getDeviceId()).release();
+    }
+
+    private static void fail(Position position, String reason) {
+        if (position.getIngestTicket() != null) {
+            position.getIngestTicket().complete(IngestOutcome.failed(reason));
+        }
     }
 
     /** Reports the outcome of a ticketed position, now that its transaction has finished. */
@@ -297,7 +326,7 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
             next = queue.peek();
         }
         if (next != null) {
-            next.ctx().executor().execute(() -> processPosition(next.ctx(), next.position()));
+            workers.of(deviceId).execute(() -> processPosition(next.ctx(), next.position()));
         }
     }
 

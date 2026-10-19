@@ -87,8 +87,6 @@ public class NotificationManager {
         }
     }
 
-    private static final long DELIVERY_LEASE = 60_000;
-
     private void updateEvent(Event event, Position position) {
         try {
             event.setId(storage.addObject(event, new Request(new Columns.Exclude("id"))));
@@ -118,7 +116,7 @@ public class NotificationManager {
 
     private void deliver(OutboxStore.Entry entry, Event event, Position position) {
         try {
-            if (!outbox.claim(entry, DELIVERY_LEASE)) {
+            if (!outbox.claim(entry)) {
                 return;
             }
         } catch (StorageException error) {

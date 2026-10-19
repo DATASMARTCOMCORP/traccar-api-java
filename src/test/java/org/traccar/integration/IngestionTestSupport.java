@@ -30,6 +30,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -60,6 +61,10 @@ abstract class IngestionTestSupport {
     final List<JsonNode> forwardedPositions = new CopyOnWriteArrayList<>();
     /** What the webhook answers; deliveries are recorded only when it accepts them. */
     volatile int webhookStatus = 200;
+    /** When set, the first webhook call waits for this latch before it answers. */
+    volatile CountDownLatch holdFirstWebhook;
+    private final java.util.concurrent.atomic.AtomicBoolean firstWebhookSeen =
+            new java.util.concurrent.atomic.AtomicBoolean();
     private final Semaphore forwardedPermits = new Semaphore(0);
     private int forwardedSeen;
     final List<TraccarInstance> instances = new ArrayList<>();
@@ -105,9 +110,18 @@ abstract class IngestionTestSupport {
     void setUpDatabase() throws Exception {
         jdbcUrl = createDatabase();
         webhook = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        webhook.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
         webhook.createContext("/events", exchange -> {
             int status = webhookStatus;
             JsonNode body = JSON.readTree(exchange.getRequestBody());
+            var hold = holdFirstWebhook;
+            if (hold != null && firstWebhookSeen.compareAndSet(false, true)) {
+                try {
+                    hold.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
             exchange.sendResponseHeaders(status, -1);
             exchange.close();
             if (status == 200) {
