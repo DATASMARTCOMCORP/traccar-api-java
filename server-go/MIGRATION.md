@@ -703,8 +703,13 @@ every report, as JSON and as Excel, Java vs Go.
   `report.xlsx`, as `ReportMailer` does. Errors inside an Excel method carry the Excel media
   type, as Java's do.
 
+**Position exports (done):** `/api/positions/{kml,kmz,csv,gpx}` match Java byte for byte,
+with these quirks reproduced: the CSV is unquoted, and it blanks strings that start like a
+formula. Java orders the CSV's attribute columns by an immutable set's per-JVM hash salt, so
+Go puts them in first-seen order and the harness compares the columns by name. A missing
+date or device is a 400 (Java's `NullPointerException`).
+
 Not done yet in Step 9:
-- position exports (`/api/positions/{kml,kmz,csv,gpx}`);
 - scheduled tasks;
 - `/api/notifications/test`, password-reset mail;
 - the firebase, traccar, telegram, whatsapp and pushover notificators (production's types

@@ -165,7 +165,7 @@ func (a *API) reportJSON(name string, report func(w http.ResponseWriter, r *requ
 func (a *API) reportExcel(name string) handlerFunc {
 	return func(w http.ResponseWriter, r *request) error {
 		if err := a.checkRestriction(r, func(x restrictions) bool { return x.disableReports }); err != nil {
-			return asExcel(err)
+			return labeled(err, excelType)
 		}
 		mail := r.PathValue("type") == "mail" || r.PathValue("type") == "" && qBool(r, "mail")
 		var q reports.Query
@@ -219,25 +219,13 @@ func (a *API) reportExcel(name string) handlerFunc {
 		}
 		data, err := build(r.Context())
 		if err != nil {
-			return asExcel(err)
+			return labeled(err, excelType)
 		}
 		w.Header().Set("Content-Type", excelType)
 		w.Header().Set("Content-Disposition", "attachment; filename=report.xlsx")
 		_, err = w.Write(data)
 		return err
 	}
-}
-
-// asExcel labels an error raised in an Excel method with that method's media type, as
-// Java's error mapper does.
-func asExcel(err error) error {
-	var he *httpError
-	if errors.As(err, &he) {
-		c := *he
-		c.contentType = excelType
-		return &c
-	}
-	return &httpError{status: http.StatusBadRequest, msg: err.Error(), contentType: excelType}
 }
 
 // excelOptions are the user's preferences the templates use, and the events filter and

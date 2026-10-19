@@ -168,6 +168,30 @@ func reportsSuite() suite {
 		xl("admin", "/api/reports/trips/xlsx?deviceId=${car}&from=2026-10-05T00:00:00Z"),
 		xl("admin", "/api/reports/route/csv?deviceId=${car}&from=2026-10-05T00:00:00Z&to=2026-10-07T00:00:00Z"),
 	)
+	// Position exports (PositionResource).
+	const period = "&from=2026-10-05T00:00:00Z&to=2026-10-07T00:00:00Z"
+	steps = append(steps,
+		get("admin", "/api/positions/kml?deviceId=${car}"+period),
+		get("admin", "/api/positions/kmz?deviceId=${truck}"+period).binary(),
+		get("admin", "/api/positions/gpx?deviceId=${car}"+period),
+		get("admin", "/api/positions/csv?deviceId=${car}"+period).csv(),
+		get("admin", "/api/positions/csv?deviceId=${truck}"+period).csv(),
+		get("partial", "/api/positions/csv?deviceId=${car}"+period).csv(),
+		get("admin", "/api/positions/kml?deviceId=${car}&geofenceId=${depot}"+period),
+		get("admin", "/api/positions/gpx?deviceId=${car}&geofenceId=${depot}"+period),
+		get("admin", "/api/positions/csv?deviceId=${car}&geofenceId=${depot}"+period).csv(),
+		get("partial", "/api/positions/gpx?deviceId=${truck}"+period),
+		get("blocked", "/api/positions/kml?deviceId=${car}"+period),
+		get("admin", "/api/positions/kml?deviceId=${car}"),
+		get("admin", "/api/positions/gpx?deviceId=${car}"),
+		get("admin", "/api/positions/csv?deviceId=${car}").csv(),
+		get("admin", "/api/positions/gpx?deviceId=999999"+period),
+		get("admin", "/api/positions/kml?deviceId=${car}"+period).header("Accept", "application/xml"),
+		get("admin", "/api/positions/csv?deviceId=${car}"+period).header("Accept", "application/json"),
+		get("admin", "/api/positions/gpx?deviceId=${car}"+period).header("Accept", "application/gpx+xml"),
+		get("admin", "/api/positions/abc?deviceId=${car}"+period),
+		get("anon", "/api/positions/kml?deviceId=${car}"+period),
+	)
 	return suite{seed: seed, strictSeed: true, config: config, scenarios: []Scenario{
 		{Name: "reports-json", Steps: steps},
 	}}
