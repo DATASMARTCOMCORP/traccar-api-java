@@ -123,6 +123,7 @@ func run(ctx context.Context, args []string, stderr io.Writer) error {
 		return err
 	}
 	apiOpts.SendCommand = proc.SendCommand
+	apiOpts.SendTextCommand = proc.SendTextCommand
 	apiOpts.Live = hub
 	if apiOpts.Reports, err = reports.New(cfg, st, apiOpts.MaxPositions); err != nil {
 		return err

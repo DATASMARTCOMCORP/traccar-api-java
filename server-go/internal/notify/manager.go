@@ -24,6 +24,7 @@ type Manager struct {
 	format    *Formatter
 	forwarder *forwarder // nil without event.forward.url
 	mail      *mailer
+	sms       *smsClient // nil without sms.http.url
 
 	types            map[string]bool // notificator.types
 	typeOrder        []string        // the same, in the configuration's order
@@ -42,6 +43,8 @@ type Hooks struct {
 	Calendar func(ctx context.Context, calendarID int64, at time.Time) (bool, error)
 	// SendCommand sends a command to a connected device (false: not connected).
 	SendCommand func(ctx context.Context, c *model.Command) (bool, error)
+	// SendTextCommand sends a command by SMS (the text channel).
+	SendTextCommand func(ctx context.Context, c *model.Command) error
 	// MailSent and SMSSent count for tc_statistics (StatisticsManager).
 	MailSent, SMSSent func()
 }
@@ -100,11 +103,18 @@ func NewManager(cfg *config.Config, st *store.Store, hub *live.Hub, log *slog.Lo
 	if err != nil {
 		return nil, err
 	}
+	m.sms = sms
 	m.notificators = map[string]notificator{
-		"web":     &webNotificator{format: m.format, hub: hub},
-		"mail":    &mailNotificator{format: m.format, mail: mail, sent: func() { m.count(m.Hooks.MailSent) }},
-		"sms":     &smsNotificator{format: m.format, sms: sms, sent: func() { m.count(m.Hooks.SMSSent) }},
-		"command": &commandNotificator{st: st, deliver: func(ctx context.Context, c *model.Command) (bool, error) { return m.sendCommand(ctx, c) }},
+		"web":  &webNotificator{format: m.format, hub: hub},
+		"mail": &mailNotificator{format: m.format, mail: mail, sent: func() { m.count(m.Hooks.MailSent) }},
+		"sms":  &smsNotificator{format: m.format, sms: sms, sent: func() { m.count(m.Hooks.SMSSent) }},
+		"command": &commandNotificator{st: st, deliver: func(ctx context.Context, c *model.Command) (bool, error) { return m.sendCommand(ctx, c) },
+			deliverText: func(ctx context.Context, c *model.Command) error {
+				if m.Hooks.SendTextCommand == nil {
+					return errors.New("SMS not configured")
+				}
+				return m.Hooks.SendTextCommand(ctx, c)
+			}},
 	}
 	for t := range m.types {
 		if _, ok := m.notificators[t]; !ok {
@@ -147,6 +157,18 @@ func (m *Manager) Test(ctx context.Context, u *model.User, notificator string) e
 		}
 	}
 	return nil
+}
+
+// SendSMS is SmsManager.sendMessage, for commands sent by SMS; a nil phone or message
+// is Java's null, which fails.
+func (m *Manager) SendSMS(phone, message *string) error {
+	if m.sms == nil {
+		return errors.New("SMS not configured")
+	}
+	if phone == nil || message == nil {
+		return errors.New("NullPointerException: SMS without phone or message")
+	}
+	return m.sms.send(*phone, *message)
 }
 
 // MailText mails a text template (TextTemplateFormatter and MailManager): the expiration

@@ -117,6 +117,16 @@ func notifySuite() suite {
 		postWith("admin", "/api/notifications/test/command"),
 		postWith("admin", "/api/notifications/test/telegram"),
 		postWith("admin", "/api/notifications/test/unknown"),
+		// Commands by SMS: custom ones as they are, others only where the protocol of
+		// the latest position encodes them (OsmAnd doesn't); a device without a phone
+		// fails.
+		postJSON("admin", "/api/commands/send", `{"deviceId":${car},"type":"custom","textChannel":true,"attributes":{"data":"STATUS#"}}`),
+		postJSON("admin", "/api/commands/send", `{"deviceId":${other},"type":"custom","textChannel":true,"attributes":{"data":"PING"}}`),
+		putJSON("admin", "/api/devices/${other}", `{"id":${other},"name":"Other","uniqueId":"300002","phone":"+5511988887777"}`),
+		postJSON("admin", "/api/commands/send", `{"deviceId":${other},"type":"custom","textChannel":true,"attributes":{"data":"PING"}}`),
+		postJSON("admin", "/api/commands/send", `{"deviceId":${other},"type":"custom","textChannel":true}`),
+		postJSON("admin", "/api/commands/send", `{"deviceId":${other},"type":"rebootDevice","textChannel":true}`),
+		postJSON("admin", "/api/commands/send", `{"deviceId":${car},"type":"rebootDevice","textChannel":true}`),
 	)
 	steps = append(steps, read()...)
 	steps = append(steps,

@@ -18,6 +18,7 @@ func Protocol() ingest.Protocol {
 	return ingest.Protocol{
 		Name:         "totem",
 		DataCommands: protocol.DataCommands("totem"),
+		TextEncoder:  SMSEncoder,
 		Servers: []ingest.Server{{NewPipeline: func() ingest.Pipeline {
 			return ingest.Pipeline{
 				Framer:  Framer(),

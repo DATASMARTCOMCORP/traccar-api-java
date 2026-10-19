@@ -77,13 +77,14 @@ func (n *smsNotificator) send(_ context.Context, in Input) error {
 // commandNotificator is NotificatorCommand: the notification's saved command goes to the
 // event's device (CommandsManager.sendCommand: live, else queued).
 type commandNotificator struct {
-	st      *store.Store
-	deliver func(ctx context.Context, c *model.Command) (bool, error)
+	st          *store.Store
+	deliver     func(ctx context.Context, c *model.Command) (bool, error)
+	deliverText func(ctx context.Context, c *model.Command) error
 }
 
 func (n *commandNotificator) sendCommand(ctx context.Context, c *model.Command) error {
 	if c.TextChannel {
-		return errors.New("SMS commands are not ported")
+		return n.deliverText(ctx, c)
 	}
 	sent, err := n.deliver(ctx, c)
 	if err != nil || sent {

@@ -81,6 +81,9 @@ type Protocol struct {
 	// OwnQueue: the decoder reads the command queue itself, so onMessageEvent doesn't
 	// send queued commands (OsmAndProtocolDecoder overrides sendQueuedCommands).
 	OwnQueue bool
+	// TextEncoder encodes text channel (SMS) commands (setTextCommandEncoder); nil: only
+	// custom commands go by SMS.
+	TextEncoder CommandEncoder
 }
 
 // decodeSafely runs a decoder, turning a Fault panic into an error.
@@ -143,6 +146,9 @@ func encodeReply(pl Pipeline, data any) ([]byte, error) {
 // servers that started, and the error says which didn't.
 func (p *Processor) ServeProtocol(proto Protocol, port int) (*Listener, error) {
 	l := &Listener{p: p, protocol: proto.Name}
+	p.servedMu.Lock()
+	p.served[proto.Name] = proto
+	p.servedMu.Unlock()
 	var errs []error
 	for _, s := range proto.Servers {
 		var err error

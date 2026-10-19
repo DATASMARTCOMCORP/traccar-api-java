@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/model"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/kit"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/store"
 )
 
 // sendQueuedCommands is BaseProtocolDecoder.sendQueuedCommands: every queued command of
@@ -88,4 +90,62 @@ func (p *Processor) SendCommand(ctx context.Context, command *model.Command) (se
 	c.loop.Lock()
 	defer c.loop.Unlock()
 	return true, c.sendDataCommand(NewMessage(ctx, c, ds.endpoint.remote, time.Now()), command)
+}
+
+// SetSMS sets the SMS sender of text channel commands (SmsManager); a nil phone or
+// message is Java's null.
+func (p *Processor) SetSMS(send func(phone, message *string) error) { p.sms = send }
+
+// SendTextCommand is CommandsManager.sendCommand for the text channel: by SMS to the
+// device's phone, encoded by the protocol of its latest position (BaseProtocol.
+// sendTextCommand). Custom commands send their data as is; without a position only they
+// can be sent.
+func (p *Processor) SendTextCommand(ctx context.Context, command *model.Command) (err error) {
+	if p.sms == nil {
+		return errors.New("SMS not configured")
+	}
+	// Java reads the device and its latest position from storage, not the cache.
+	device, err := store.Get[model.Device](ctx, p.st, command.DeviceID)
+	if errors.Is(err, store.ErrNotFound) {
+		return errors.New("NullPointerException: no device")
+	}
+	if err != nil {
+		return err
+	}
+	var position *model.Position
+	if pos, err := p.st.PositionOf(ctx, device.ID, device.PositionID); err == nil {
+		position = &pos
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	custom := func() error { return p.sms(device.Phone, command.Attributes.JavaString(model.CommandKeyData)) }
+	if position == nil {
+		if command.Type == model.CommandCustom {
+			return custom()
+		}
+		return fmt.Errorf("Command %s is not supported", command.Type)
+	}
+	var proto Protocol
+	ok := false
+	if position.Protocol != nil {
+		p.servedMu.Lock()
+		proto, ok = p.served[*position.Protocol]
+		p.servedMu.Unlock()
+	}
+	if !ok {
+		return errors.New("NullPointerException: protocol not running")
+	}
+	if command.Type == model.CommandCustom {
+		return custom()
+	}
+	if proto.TextEncoder == nil || !slices.Contains(protocol.SupportedCommands(proto.Name, true), command.Type) {
+		return fmt.Errorf("Command %s is not supported in protocol %s", command.Type, proto.Name)
+	}
+	defer kit.Recover(&err)
+	conn := &Conn{p: p, protocol: proto.Name}
+	encoded, _ := proto.TextEncoder.Encode(NewMessage(ctx, conn, "", time.Now()), command).(string)
+	if encoded == "" {
+		return errors.New("Failed to encode command")
+	}
+	return p.sms(device.Phone, &encoded)
 }

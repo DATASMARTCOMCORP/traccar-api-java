@@ -735,9 +735,15 @@ sends a `test` event through the notificators. `/api/password/reset` mails the
 `notify` suite through the sinks and sockets. `notificator.types` now defaults to Java's
 `web,mail,command` (it was empty when unset).
 
+**Commands by SMS (done):** text channel commands go through `sms.http.*`, as
+production configures. Custom commands send their data as is. Other commands are
+encoded by the protocol of the device's latest position, where it has a text encoder
+(granit, totem, wondex). Java's errors are kept: no phone, no position, unsupported
+command. The API and the command notificator both send them.
+
 Not done yet in Step 9:
 - the firebase, traccar, telegram, whatsapp and pushover notificators (production's types
   include firebase, but no notification uses it);
-- SMS and push command senders;
+- push command senders (Firebase, for devices with a notification token);
 - other event forwarders (amqp, kafka, mqtt, redis);
 - forward retries.

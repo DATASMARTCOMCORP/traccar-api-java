@@ -671,7 +671,7 @@ func (a *API) auditCommand(r *request, groupID, deviceID int64) {
 	}
 }
 
-// deliver is CommandsManager.sendCommand: the text channel needs SMS and push senders
+// deliver is CommandsManager.sendCommand: the text channel goes by SMS; push senders
 // aren't ported yet; a device on a live connection of this server gets the command
 // there, and anything else is queued unless "noQueue".
 func (a *API) deliver(r *request, c model.Command) (*model.QueuedCommand, error) {
@@ -680,10 +680,10 @@ func (a *API) deliver(r *request, c model.Command) (*model.QueuedCommand, error)
 		return nil, err
 	}
 	if c.TextChannel {
-		if !a.opts.TextEnabled {
+		if !a.opts.TextEnabled || a.opts.SendTextCommand == nil {
 			return nil, errors.New("SMS not configured")
 		}
-		return nil, errStatus(http.StatusNotImplemented, "SMS commands are not ported yet")
+		return nil, a.opts.SendTextCommand(r.Context(), &c)
 	}
 	if _, ok := a.commandSender(&device); ok {
 		return nil, errStatus(http.StatusNotImplemented, "push command senders are not ported yet")

@@ -12,12 +12,13 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/units"
 )
 
-// Protocol is the protocol's definition: a TCP and a UDP server. Java also registers this
-// encoder for text (SMS) commands, which the Go server doesn't send.
+// Protocol is the protocol's definition: a TCP and a UDP server. The same encoder also
+// encodes text (SMS) commands.
 func Protocol() ingest.Protocol {
 	return ingest.Protocol{
 		Name:         "wondex",
 		DataCommands: protocol.DataCommands("wondex"),
+		TextEncoder:  ingest.CommandEncoderFunc(encode),
 		Servers: []ingest.Server{
 			{NewPipeline: func() ingest.Pipeline {
 				return ingest.Pipeline{

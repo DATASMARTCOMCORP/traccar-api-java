@@ -18,6 +18,7 @@ func Protocol() ingest.Protocol {
 	return ingest.Protocol{
 		Name:         "granit",
 		DataCommands: protocol.DataCommands("granit"),
+		TextEncoder:  SMSEncoder,
 		Servers: []ingest.Server{{NewPipeline: func() ingest.Pipeline {
 			return ingest.Pipeline{
 				Framer:  Framer(),

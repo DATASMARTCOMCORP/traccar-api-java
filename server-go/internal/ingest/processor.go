@@ -34,6 +34,12 @@ type Processor struct {
 	buffer   *buffering
 	stats    *statistics
 
+	// served are the protocols this server runs (ServerManager.getProtocol).
+	servedMu sync.Mutex
+	served   map[string]Protocol
+	// sms sends a text message (SmsManager); nil when SMS isn't configured.
+	sms func(phone, message *string) error
+
 	ctx    context.Context // processing outlives the request that delivered a position
 	cancel context.CancelFunc
 	work   sync.WaitGroup
@@ -90,7 +96,8 @@ type settings struct {
 
 // NewProcessor reads the settings and returns a processor ready for connections.
 func NewProcessor(cfg *config.Config, st *store.Store, log *slog.Logger) (*Processor, error) {
-	p := &Processor{cfg: cfg, st: st, log: log, queues: map[int64][]job{}, textLogs: cfg.Bool("logger.decodeTextData", true)}
+	p := &Processor{cfg: cfg, st: st, log: log, queues: map[int64][]job{}, textLogs: cfg.Bool("logger.decodeTextData", true),
+		served: map[string]Protocol{}}
 	if err := p.readSettings(); err != nil {
 		return nil, err
 	}
@@ -316,8 +323,10 @@ func (p *Processor) SetNotify(m *notify.Manager) {
 			}
 			return p.calendarContains(c, at)
 		},
-		SendCommand: p.SendCommand,
-		MailSent:    p.stats.mailSent,
-		SMSSent:     p.stats.smsSent,
+		SendCommand:     p.SendCommand,
+		SendTextCommand: p.SendTextCommand,
+		MailSent:        p.stats.mailSent,
+		SMSSent:         p.stats.smsSent,
 	}
+	p.sms = m.SendSMS // fails with "SMS not configured" without sms.http.url
 }

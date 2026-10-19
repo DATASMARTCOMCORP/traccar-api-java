@@ -51,6 +51,8 @@ type Options struct {
 	// SendCommand sends a command to the device's live connection (DeviceSession.
 	// sendCommand); sent is false when it has none that takes commands. Nil: none.
 	SendCommand func(ctx context.Context, c *model.Command) (sent bool, err error)
+	// SendTextCommand sends a command by SMS (the text channel).
+	SendTextCommand func(ctx context.Context, c *model.Command) error
 
 	// Reports computes /api/reports (nil: the report endpoints fail).
 	Reports *reports.Reports
