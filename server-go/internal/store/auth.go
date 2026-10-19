@@ -27,6 +27,19 @@ func (s *Store) UserByLogin(ctx context.Context, name string) (model.User, error
 	return rows[0], nil
 }
 
+// UserByEmail finds the first user whose e-mail equals email ignoring case (PasswordResource:
+// LOWER(email) = the address in lower case).
+func (s *Store) UserByEmail(ctx context.Context, email string) (model.User, error) {
+	rows, err := query(ctx, s, userTable, userTable.selectSQL()+" WHERE LOWER(email) = $1 LIMIT 1", strings.ToLower(email))
+	if err != nil {
+		return model.User{}, err
+	}
+	if len(rows) == 0 {
+		return model.User{}, fmt.Errorf("user %q: %w", email, ErrNotFound)
+	}
+	return rows[0], nil
+}
+
 // NoUsers reports whether tc_users is empty (UserUtil.isEmpty: the first user to register
 // becomes administrator, and GET /api/server reports newServer).
 func (s *Store) NoUsers(ctx context.Context) (bool, error) {

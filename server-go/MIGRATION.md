@@ -729,8 +729,13 @@ start, so there are unit tests for the triggers. A database test,
 Deviation: an unexpected exception kills a Java task until restart (its executor
 suppresses later runs). Go logs the error and runs the task again next period.
 
+**Test notifications and password reset (done):** `/api/notifications/test[/{type}]`
+sends a `test` event through the notificators. `/api/password/reset` mails the
+`passwordReset` template with a token, in the user's language. Both are checked in the
+`notify` suite through the sinks and sockets. `notificator.types` now defaults to Java's
+`web,mail,command` (it was empty when unset).
+
 Not done yet in Step 9:
-- `/api/notifications/test`, password-reset mail;
 - the firebase, traccar, telegram, whatsapp and pushover notificators (production's types
   include firebase, but no notification uses it);
 - SMS and push command senders;

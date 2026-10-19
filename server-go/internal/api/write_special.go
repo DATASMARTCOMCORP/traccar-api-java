@@ -834,6 +834,49 @@ func (a *API) share(kind store.Kind) handlerFunc {
 	}
 }
 
+// resetPassword is PasswordResource.reset: the passwordReset mail (with a token) to the
+// user with that e-mail, ignoring case; 200 whether or not there is one.
+func (a *API) resetPassword(w http.ResponseWriter, r *request) error {
+	f, err := form(r)
+	if err != nil {
+		return err
+	}
+	email := f.get("email")
+	if email == nil {
+		return errors.New("NullPointerException: email")
+	}
+	u, err := a.st.UserByEmail(r.Context(), *email)
+	if err == nil {
+		servers, err := store.All[model.Server](r.Context(), a.st)
+		if err != nil {
+			return err
+		}
+		if len(servers) == 0 || a.opts.PasswordReset == nil {
+			return errors.New("mail is not available")
+		}
+		if err := a.opts.PasswordReset(&servers[0], &u); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	w.WriteHeader(http.StatusOK)
+	return nil
+}
+
+// testNotification is NotificationResource.testMessage: 204 once the notificator (or
+// every enabled one) has sent a test message to the user.
+func (a *API) testNotification(w http.ResponseWriter, r *request) error {
+	if a.opts.TestNotification == nil {
+		return errors.New("notifications are not available")
+	}
+	if err := a.opts.TestNotification(r.Context(), r.user, r.PathValue("notificator")); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
 // updatePassword is PasswordResource.update: set a new password with a reset token.
 func (a *API) updatePassword(w http.ResponseWriter, r *request) error {
 	f, err := form(r)

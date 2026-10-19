@@ -26,6 +26,7 @@ type Manager struct {
 	mail      *mailer
 
 	types            map[string]bool // notificator.types
+	typeOrder        []string        // the same, in the configuration's order
 	notificators     map[string]notificator
 	geocodeOnRequest bool // geocoder.enable, pluscodes and geocoder.onRequest
 	timeThreshold    time.Duration
@@ -73,10 +74,11 @@ func NewManager(cfg *config.Config, st *store.Store, hub *live.Hub, log *slog.Lo
 			m.blockedUsers[id] = true
 		}
 	}
-	if v, ok := cfg.Lookup("notificator.types"); ok {
-		for _, t := range strings.Split(v, ",") {
-			m.types[t] = true
+	for _, t := range strings.Split(cfg.String("notificator.types", "web,mail,command"), ",") {
+		if !m.types[t] {
+			m.typeOrder = append(m.typeOrder, t)
 		}
+		m.types[t] = true
 	}
 	if cfg.Bool("geocoder.enable", true) {
 		switch t := cfg.String("geocoder.type", "locationiq"); t {
@@ -117,6 +119,34 @@ func (m *Manager) MailReport(u *model.User, data []byte) error {
 	subject := "Report"
 	return m.mail.send(u, false, &subject, "The report is in the attachment.",
 		&attachment{"report.xlsx", data}, func() { m.count(m.Hooks.MailSent) })
+}
+
+// Test is NotificationResource.testMessage: a "test" event without device, notification
+// or position, through one notificator, or through every enabled one (in configuration
+// order; Java's is a hash set's) until one fails.
+func (m *Manager) Test(ctx context.Context, u *model.User, notificator string) error {
+	types := []string{notificator}
+	if notificator == "" {
+		types = m.typeOrder
+	}
+	servers, err := store.All[model.Server](ctx, m.st)
+	if err != nil {
+		return err
+	}
+	if len(servers) == 0 {
+		return errors.New("no server row")
+	}
+	e := &model.Event{Type: "test", EventTime: model.NewTime(time.Now())}
+	for _, t := range types {
+		nt, ok := m.notificators[t]
+		if !ok || !m.types[t] {
+			return errors.New("Failed to get notificator " + t)
+		}
+		if err := nt.send(ctx, Input{User: u, Server: &servers[0], Event: e}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // MailText mails a text template (TextTemplateFormatter and MailManager): the expiration

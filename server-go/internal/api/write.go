@@ -71,6 +71,9 @@ func (a *API) writeRoutes() {
 	a.handle("POST /api/share/device", authenticated, a.share(store.KindDevice))
 	a.handle("POST /api/share/group", authenticated, a.share(store.KindGroup))
 	a.handle("POST /api/password/update", public, a.updatePassword)
+	a.handle("POST /api/password/reset", public, a.resetPassword)
+	a.handle("POST /api/notifications/test", authenticated, a.testNotification)
+	a.handle("POST /api/notifications/test/{notificator}", authenticated, a.testNotification)
 }
 
 func registerWrites[T interface {

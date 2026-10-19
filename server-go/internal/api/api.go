@@ -54,6 +54,10 @@ type Options struct {
 
 	// Reports computes /api/reports (nil: the report endpoints fail).
 	Reports *reports.Reports
+	// TestNotification sends a test event through a notificator ("": all of them).
+	TestNotification func(ctx context.Context, u *model.User, notificator string) error
+	// PasswordReset mails a user the passwordReset template.
+	PasswordReset func(server *model.Server, u *model.User) error
 	// MailReport mails a workbook to the user (ReportMailer); nil: mailed reports are lost.
 	MailReport func(u *model.User, data []byte) error
 
@@ -106,10 +110,7 @@ func OptionsFromConfig(c *config.Config) (Options, error) {
 	if err != nil {
 		return Options{}, err
 	}
-	var notificators []string
-	if v, ok := c.Lookup("notificator.types"); ok {
-		notificators = strings.Split(v, ",")
-	}
+	notificators := strings.Split(c.String("notificator.types", "web,mail,command"), ",")
 	return Options{
 		SocketTimeout:         time.Duration(socketTimeout) * time.Millisecond,
 		DefaultDeviceLimit:    deviceLimit,

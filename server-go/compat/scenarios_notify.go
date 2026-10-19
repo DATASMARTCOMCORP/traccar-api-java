@@ -105,10 +105,27 @@ func notifySuite() suite {
 		fix(-1, -23.5050, -46.5851, 0, "&ignition=false"),
 	))
 	steps = append(steps, read()...)
+	// Password reset mails (with a token) and test notifications.
+	steps = append(steps,
+		postForm("", "/api/password/reset", "email=VIEWER%40Example.com"),
+		postForm("", "/api/password/reset", "email=nobody%40example.com"),
+		postForm("", "/api/password/reset", "other=1"),
+		postWith("admin", "/api/notifications/test/web"),
+		postWith("admin", "/api/notifications/test/mail"),
+		postWith("viewer", "/api/notifications/test/sms"),
+		postWith("viewer", "/api/notifications/test/mail"),
+		postWith("admin", "/api/notifications/test/command"),
+		postWith("admin", "/api/notifications/test/telegram"),
+		postWith("admin", "/api/notifications/test/unknown"),
+	)
+	steps = append(steps, read()...)
 	steps = append(steps,
 		get("admin", "/api/commands/send?deviceId=${car}"),
 		Step{Socket: &Socket{Name: "a", Close: true}},
 		Step{Socket: &Socket{Name: "v", Close: true}},
+		// Every notificator: Java's order is a hash set's, so only the answer is compared
+		// (command fails without a notification, whatever was sent before).
+		postWith("admin", "/api/notifications/test"),
 	)
 	return suite{seed: seed, strictSeed: true, config: config, scenarios: []Scenario{
 		{Name: "notify-drive", Steps: steps},

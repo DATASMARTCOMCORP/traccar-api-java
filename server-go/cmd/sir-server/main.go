@@ -28,6 +28,7 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/config"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/ingest"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/live"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/model"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/notify"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/all"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/reports"
@@ -128,6 +129,10 @@ func run(ctx context.Context, args []string, stderr io.Writer) error {
 	}
 	apiOpts.Ingest = proc
 	apiOpts.MailReport = notifier.MailReport
+	apiOpts.TestNotification = notifier.Test
+	apiOpts.PasswordReset = func(server *model.Server, u *model.User) error {
+		return notifier.MailText(server, u, true, "passwordReset", notify.TextExtra{})
+	}
 	port, err := cfg.Int(config.WebPort, config.DefaultWebPort)
 	if err != nil {
 		return err
