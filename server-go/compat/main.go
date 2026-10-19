@@ -227,6 +227,8 @@ func runScenarios(ctx context.Context, scenarios []Scenario, filter *regexp.Rege
 			continue
 		}
 		ran++
+		a.now = time.Now().Truncate(time.Second)
+		b.now = a.now
 		var problems []string
 		for i, s := range sc.Steps {
 			label := fmt.Sprintf("step %d %s", i+1, describe(s))
@@ -296,6 +298,9 @@ func describe(s Step) string {
 	}
 	if s.Sleep > 0 {
 		return "sleep " + s.Sleep.String()
+	}
+	if s.Sink {
+		return "sink read"
 	}
 	if s.Socket != nil {
 		op := s.Socket

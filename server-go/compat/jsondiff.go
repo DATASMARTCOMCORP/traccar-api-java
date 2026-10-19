@@ -196,10 +196,34 @@ func (c comparer) compare(path string, a, b any, out *[]string) {
 }
 
 // sortedCopy orders elements by their canonical JSON (json.Marshal sorts map keys).
+// sortedCopy orders an unordered array by its elements' canonical JSON, with Java dates
+// blanked: each side stamps its own times, which mustn't change the pairing.
 func sortedCopy(v []any) []any {
 	out := slices.Clone(v)
-	slices.SortStableFunc(out, func(x, y any) int { return strings.Compare(canonical(x), canonical(y)) })
+	slices.SortStableFunc(out, func(x, y any) int { return strings.Compare(canonical(undated(x)), canonical(undated(y))) })
 	return out
+}
+
+func undated(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		m := make(map[string]any, len(x))
+		for k, e := range x {
+			m[k] = undated(e)
+		}
+		return m
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = undated(e)
+		}
+		return out
+	case string:
+		if javaDate.MatchString(x) {
+			return ""
+		}
+	}
+	return v
 }
 
 func canonical(v any) string {

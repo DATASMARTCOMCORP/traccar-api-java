@@ -26,6 +26,7 @@ func suites() map[string]suite {
 		"status":    statusSuite(),
 		"protocols": protocolsSuite(),
 		"live":      liveSuite(),
+		"notify":    notifySuite(),
 	}
 }
 

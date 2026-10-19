@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -62,6 +61,7 @@ type target struct {
 
 	webPort int
 	ports   map[string]int // device protocol name → port
+	sink    *sink          // where its forwards, SMS and mail go
 
 	cmd    *exec.Cmd
 	exited chan struct{}
@@ -95,6 +95,9 @@ func newTarget(l launch, label, db string) (*target, error) {
 		if t.ports[p.name], err = freePort(); err != nil {
 			return nil, err
 		}
+	}
+	if t.sink, err = newSink(); err != nil {
+		return nil, err
 	}
 	if err := t.writeConfig(l); err != nil {
 		return nil, err
@@ -140,7 +143,9 @@ func (t *target) writeConfig(l launch) error {
 		}
 	}
 	entries["protocols.enable"] = strings.Join(names, ",")
-	maps.Copy(entries, l.overrides)
+	for k, v := range l.overrides {
+		entries[k] = t.sink.expand(v)
+	}
 
 	var b strings.Builder
 	b.WriteString("<?xml version='1.0' encoding='UTF-8'?>\n")
@@ -179,7 +184,7 @@ func (t *target) start(ctx context.Context, l launch) error {
 		t.cmd.Dir = l.repo
 	case "go":
 		t.cmd = exec.Command(l.goBin, t.configPath())
-		t.cmd.Dir = t.dir
+		t.cmd.Dir = l.repo // as Java: relative paths (templates.root) resolve there
 	default:
 		return fmt.Errorf("unknown target kind %q", t.kind)
 	}
@@ -231,6 +236,9 @@ func (t *target) waitReady(ctx context.Context) error {
 }
 
 func (t *target) stop() {
+	if t.sink != nil {
+		defer t.sink.close()
+	}
 	if t.cmd == nil || t.cmd.Process == nil {
 		return
 	}

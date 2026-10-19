@@ -8,6 +8,7 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -17,6 +18,7 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/config"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/live"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/model"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/notify"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/store"
 )
 
@@ -41,6 +43,8 @@ type Processor struct {
 
 	// live receives device, position and log updates for the WebSocket; nil: none.
 	live *live.Hub
+	// notify forwards and notifies stored events; nil: neither.
+	notify *notify.Manager
 	// textLogs is logger.decodeTextData: printable messages are logged as text.
 	textLogs bool
 
@@ -295,4 +299,25 @@ func (p *Processor) PositionStored(ctx context.Context, pos *model.Position) err
 	}
 	p.live.UpdatePosition(pos)
 	return nil
+}
+
+// SetNotify connects event forwarding and notifications, and gives them what they need
+// from the device side.
+func (p *Processor) SetNotify(m *notify.Manager) {
+	p.notify = m
+	m.Hooks = notify.Hooks{
+		Calendar: func(ctx context.Context, calendarID int64, at time.Time) (bool, error) {
+			c, err := store.Get[model.Calendar](ctx, p.st, calendarID)
+			if errors.Is(err, store.ErrNotFound) {
+				return true, nil // no calendar: always
+			}
+			if err != nil {
+				return false, err
+			}
+			return p.calendarContains(c, at)
+		},
+		SendCommand: p.SendCommand,
+		MailSent:    p.stats.mailSent,
+		SMSSent:     p.stats.smsSent,
+	}
 }

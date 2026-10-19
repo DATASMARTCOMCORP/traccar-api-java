@@ -334,7 +334,9 @@ func (s *sessions) updateDevice(ctx context.Context, deviceID int64, status stri
 		case model.StatusUnknown:
 			eventType = model.EventDeviceUnknown
 		}
-		s.p.storeEvents(ctx, []*model.Event{newDeviceEvent(eventType, deviceID)}, nil)
+		if err := s.p.storeEvents(ctx, []*model.Event{newDeviceEvent(eventType, deviceID)}, nil); err != nil {
+			s.p.log.Warn("Event notification failed", "error", err)
+		}
 	}
 	if at != nil {
 		d.LastUpdate = model.NewTime(*at)

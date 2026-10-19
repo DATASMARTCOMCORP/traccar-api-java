@@ -70,7 +70,9 @@ func (c *Conn) QueuedCommands(ctx context.Context, deviceID int64, limit int) ([
 	}
 	// Java collects the events in a HashMap keyed by identity-hashed events, so with
 	// several commands their order changes between runs; Go keeps queue order.
-	p.storeEvents(ctx, events, nil)
+	if err := p.storeEvents(ctx, events, nil); err != nil {
+		p.log.Warn("Event notification failed", "error", err)
+	}
 	return commands, nil
 }
 

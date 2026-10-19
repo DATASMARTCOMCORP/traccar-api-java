@@ -23,8 +23,9 @@ func newDeviceEvent(eventType string, deviceID int64) *model.Event {
 }
 
 // storeEvents is NotificationManager.updateEvents: each event is stored, in order, with
-// the device cached meanwhile. Forwarding and notifications are Step 9.
-func (p *Processor) storeEvents(ctx context.Context, events []*model.Event, pos *model.Position) {
+// the device cached meanwhile, then forwarded and notified (notify.Manager). An error is
+// Java's exception out of updateEvents: the remaining events aren't handled.
+func (p *Processor) storeEvents(ctx context.Context, events []*model.Event, pos *model.Position) error {
 	for _, e := range events {
 		ref := new(byte)
 		if err := p.cache.addDevice(ctx, e.DeviceID, ref); err != nil {
@@ -35,8 +36,35 @@ func (p *Processor) storeEvents(ctx context.Context, events []*model.Event, pos 
 			p.log.Warn("Event save error", "error", err)
 		}
 		p.log.Info("Event", "deviceId", e.DeviceID, "time", e.EventTime.Time, "type", e.Type)
+		var err error
+		if p.notify != nil {
+			var d model.Device
+			if d, err = p.cachedDevice(ctx, e.DeviceID); err == nil {
+				err = p.notify.Event(ctx, e, pos, d)
+			}
+		}
 		p.cache.removeDevice(e.DeviceID, ref)
+		if err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+// cachedDevice is CacheManager.getObject(Device): the row, with the status and positionId
+// of Java's cached object.
+func (p *Processor) cachedDevice(ctx context.Context, deviceID int64) (model.Device, error) {
+	d, err := store.Get[model.Device](ctx, p.st, deviceID)
+	if err != nil {
+		return d, err
+	}
+	if status, ok := p.cache.status(deviceID); ok {
+		d.Status = &status
+	}
+	if positionID, ok := p.cache.positionID(deviceID); ok {
+		d.PositionID = positionID
+	}
+	return d, nil
 }
 
 // eventHandler is a BaseEventHandler; it returns the events it detects, in order.
@@ -54,7 +82,12 @@ func (p *Processor) detectEvents(ctx context.Context, dc *deviceContext, pos *mo
 	for _, h := range handlers {
 		events, err := h(ctx, dc, pos)
 		for _, e := range events {
-			p.storeEvents(ctx, []*model.Event{e}, pos)
+			// The callback runs inside the Java handler: an exception from the
+			// notifications ends the handler, so its later events are lost.
+			if nerr := p.storeEvents(ctx, []*model.Event{e}, pos); nerr != nil {
+				err = nerr
+				break
+			}
 		}
 		if err != nil {
 			p.log.Warn("Event handler failed", "deviceId", pos.DeviceID, "error", err)

@@ -20,6 +20,8 @@ type statistics struct {
 	day             int
 	received        int
 	stored          int
+	mail            int
+	sms             int
 	deviceProtocols map[int64]string
 	deviceOrder     []int64 // insertion order, for the protocols map
 	deviceMessages  map[int64]int
@@ -37,6 +39,8 @@ func (s *statistics) checkSplit(ctx context.Context) {
 		ActiveDevices:    len(s.deviceProtocols),
 		MessagesReceived: s.received,
 		MessagesStored:   s.stored,
+		MailSent:         s.mail,
+		SmsSent:          s.sms,
 	}
 	if len(s.deviceProtocols) > 0 {
 		// HashMap<String, Integer> filled in the HashMap<Long, String> values' order;
@@ -54,7 +58,7 @@ func (s *statistics) checkSplit(ctx context.Context) {
 		}
 		row.Protocols = &protocols
 	}
-	s.received, s.stored = 0, 0
+	s.received, s.stored, s.mail, s.sms = 0, 0, 0, 0
 	s.deviceProtocols, s.deviceOrder, s.deviceMessages = map[int64]string{}, nil, map[int64]int{}
 	go func() {
 		if err := store.Insert(ctx, s.p.st, &row); err != nil {
@@ -84,6 +88,22 @@ func (s *statistics) messageStored(ctx context.Context, deviceID int64, protocol
 		s.deviceProtocols[deviceID] = protocol
 		s.deviceMessages[deviceID]++
 	}
+}
+
+// mailSent is registerMail.
+func (s *statistics) mailSent() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.checkSplit(context.Background())
+	s.mail++
+}
+
+// smsSent is registerSms.
+func (s *statistics) smsSent() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.checkSplit(context.Background())
+	s.sms++
 }
 
 // messageStoredCount is messageStoredCount(deviceId), for filter.dailyLimit.

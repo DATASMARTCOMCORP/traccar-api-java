@@ -626,3 +626,63 @@ devices. There are three options:
 - cut over the API and the ports together;
 - enable a broadcast service in Java and Go (Java's multicast or Redis);
 - accept polling until the API moves.
+
+### Step 9 (notifications, forwarding), in progress
+
+**Done:** what happens to a stored event (`NotificationManager`), its texts, and the
+plus-codes geocoder. The `notify` harness suite gives each side an HTTP and an SMTP sink. It
+drives a device through geofences, alarms, overspeed, ignition and a stop, with timestamps
+relative to the scenario's start, so some events are recent and some too old to notify.
+Event forwards, mail, SMS, web messages on the sockets and the queued commands all match,
+Java vs Java and Java vs Go.
+
+- **`internal/velocity`** runs Traccar's Velocity 2.4 templates from `templates.root` at
+  runtime. They aren't converted to `text/template`, as Section 5 planned, because production
+  has customized `en/geofenceEnter.vm` and `en/geofenceExit.vm` (the texts its geofence
+  notifications use), and a deployed template edit must keep working. The engine implements
+  the subset the templates use, with Velocity's defaults: "lines" space gobbling, null
+  references printed as written, empty values false in `#if`, Java arithmetic. It also has
+  `EscapeTool.html` (commons-text's entity table), `DateTool` and `NumberTool`
+  (DecimalFormat, HALF_EVEN).
+- **`internal/notify`:**
+  - the formatter (`NotificationFormatter`, with bean views of the model for the templates);
+  - matching over the device, its group chain and its users (`CacheManager`'s graph),
+    `always`, the alarm, geofence and calendar filters, `notificator.timeThreshold` and
+    `notification.block.users`;
+  - the JSON forwarder (`event.forward.*`), and the web, mail (SMTP, user-level settings,
+    `mail.debug`), SMS (`HttpSmsClient`) and command notificators.
+- **The oracle:** `notify/testdata/renders.jsonl.gz` holds 3,080 renders recorded from Java's
+  Velocity by `notify/recorder`: every template, language and case, plus production's two
+  custom templates. The Go engine reproduces all of them.
+- **`geo.PlusCode`** is openlocationcode 1.0.4's encoder, checked on 20,000 Java codes.
+
+Findings:
+1. **Production's templates differ from the repository's.** Its English geofence templates
+   are customized. It also lacks `proximityEnter`, `proximityExit` and
+   `unaccompaniedMotion`, which then render as the bare event type.
+2. **No translation bundles in production** (`templates/translations` is missing), so
+   `$translations.get(...)` is null, and alarm texts read a literal `$alarmName`.
+3. **`ru/deviceFuelDrop.vm` doesn't parse** (an unterminated string). Java fails those
+   notifications, and so does Go.
+4. **Notifications geocode positions on request.** `geocoder.onRequest` defaults to true and
+   production's geocoder is `pluscodes`, so a position that triggers a notification gets a
+   plus code as its address. The position is shared, so the plus code also appears on the
+   socket's position and, sometimes, in the forwarded payload. Whether it reaches the
+   forward is a race inside Java: Jersey serializes the payload on its client thread, before
+   or after the geocoding depending on load. Go builds the payload first, as Java does when
+   idle, and the harness ignores the forwarded position's address.
+5. **A disabled notificator type aborts the event handler.** `getNotificator` throws inside
+   the event handler's callback. The notificators of that notification earlier in the
+   `HashSet`'s order have already sent, the rest of the event's notifications are lost, and
+   so are that handler's later events for the position. Go reproduces the order and the abort.
+6. **Mail is sent synchronously** on the processing thread in Java, and in Go.
+
+Not done yet in Step 9:
+- reports;
+- scheduled tasks;
+- `/api/notifications/test`, password-reset mail;
+- the firebase, traccar, telegram, whatsapp and pushover notificators (production's types
+  include firebase, but no notification uses it);
+- SMS and push command senders;
+- other event forwarders (amqp, kafka, mqtt, redis);
+- forward retries.

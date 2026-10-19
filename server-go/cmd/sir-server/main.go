@@ -28,6 +28,7 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/config"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/ingest"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/live"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/notify"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/all"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/store"
 )
@@ -87,6 +88,18 @@ func run(ctx context.Context, args []string, stderr io.Writer) error {
 	hub := live.NewHub(st, slog.Default())
 	hub.ShowUnknownDevices = cfg.Bool("web.showUnknownDevices", false)
 	proc.SetLive(hub)
+	// Event forwarding and notifications (NotificationManager).
+	tokens := auth.NewTokens(st)
+	notifier, err := notify.NewManager(cfg, st, hub, slog.Default())
+	if err != nil {
+		return err
+	}
+	notifier.SetToken(func(userID int64) (string, error) {
+		// TokenManager.generateToken: 7 days.
+		token, _, err := tokens.Issue(context.Background(), userID, time.Now().Add(7*24*time.Hour))
+		return token, err
+	})
+	proc.SetNotify(notifier)
 	listeners, err := startProtocols(cfg, proc, st.Location())
 	if err != nil {
 		return err
@@ -118,7 +131,7 @@ func run(ctx context.Context, args []string, stderr io.Writer) error {
 		return fmt.Errorf("web: %w", err)
 	}
 	web := &http.Server{
-		Handler:           api.New(apiOpts, st, auth.NewTokens(st)),
+		Handler:           api.New(apiOpts, st, tokens),
 		ReadHeaderTimeout: 30 * time.Second,
 		ErrorLog:          slog.NewLogLogger(slog.Default().Handler(), slog.LevelWarn),
 	}

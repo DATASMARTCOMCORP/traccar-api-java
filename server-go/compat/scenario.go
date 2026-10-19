@@ -18,6 +18,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -67,6 +69,10 @@ type Step struct {
 
 	// Socket is a WebSocket step (see Socket).
 	Socket *Socket
+
+	// Sink reads what the side sent out since the last read (see sink): HTTP posts and
+	// mail, compared as JSON.
+	Sink bool
 }
 
 // Traffic sends raw device messages to a protocol port, like a tracker would.
@@ -85,14 +91,16 @@ type Traffic struct {
 // side is the state of one target during a run: variables saved from its responses and
 // one cookie jar per actor.
 type side struct {
-	t       *target
-	db      *pgx.Conn
-	vars    map[string]string
-	clients map[string]*http.Client
-	aliases map[string]string // random value → stable alias, see jsonOptions
-	other   *side             // the opposite side, for Cross steps
-	sockets map[string]*wsClient
-	scope   map[string]string // variables used by expand for the current step
+	t         *target
+	db        *pgx.Conn
+	vars      map[string]string
+	clients   map[string]*http.Client
+	aliases   map[string]string // random value → stable alias, see jsonOptions
+	other     *side             // the opposite side, for Cross steps
+	sockets   map[string]*wsClient
+	now       time.Time // the scenario's start, for ${now:...}
+	sinkReads int
+	scope     map[string]string // variables used by expand for the current step
 }
 
 func newSide(t *target, db *pgx.Conn) *side {
@@ -112,10 +120,11 @@ func (r *side) client(actor string) *http.Client {
 	return c
 }
 
-var varRef = regexp.MustCompile(`\$\{([A-Za-z0-9_]+|totp:[A-Z2-7]+)\}`)
+var varRef = regexp.MustCompile(`\$\{([A-Za-z0-9_]+|totp:[A-Z2-7]+|now:-?[0-9]+)\}`)
 
-// expand replaces ${name} with a variable, and ${totp:SECRET} with the current TOTP code
-// for a base32 secret.
+// expand replaces ${name} with a variable, ${totp:SECRET} with the current TOTP code for a
+// base32 secret, and ${now:SECONDS} with the scenario's start time plus SECONDS, in UTC
+// ISO-8601 (the same on both sides, recent enough for notifications).
 func (r *side) expand(s string) (string, error) {
 	vars := r.scope
 	if vars == nil {
@@ -126,6 +135,14 @@ func (r *side) expand(s string) (string, error) {
 		name := m[2 : len(m)-1]
 		if secret, ok := strings.CutPrefix(name, "totp:"); ok {
 			return totpCode(secret, time.Now())
+		}
+		if offset, ok := strings.CutPrefix(name, "now:"); ok {
+			sec, _ := strconv.Atoi(offset)
+			base := r.now
+			if base.IsZero() {
+				base = time.Now()
+			}
+			return base.Add(time.Duration(sec) * time.Second).UTC().Format("2006-01-02T15:04:05Z")
 		}
 		v, ok := vars[name]
 		if !ok {
@@ -157,6 +174,15 @@ func (r *side) do(ctx context.Context, s Step) (*response, error) {
 	}
 	if s.Socket != nil {
 		return r.socket(ctx, s)
+	}
+	if s.Sink {
+		h := http.Header{}
+		h.Set("Content-Type", "application/json")
+		body := r.normalizePorts(r.t.sink.take(ctx))
+		// Kept in the work directory for debugging (with -keep).
+		r.sinkReads++
+		_ = os.WriteFile(filepath.Join(r.t.dir, fmt.Sprintf("sink-%03d.json", r.sinkReads)), body, 0o644)
+		return &response{status: http.StatusOK, header: h, body: body}, nil
 	}
 	if s.Sleep > 0 {
 		time.Sleep(s.Sleep)
