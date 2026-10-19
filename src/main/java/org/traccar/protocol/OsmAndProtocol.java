@@ -16,6 +16,7 @@
 package org.traccar.protocol;
 
 import io.netty.handler.codec.http.HttpObjectAggregator;
+import io.netty.handler.codec.http.HttpContentDecompressor;
 import io.netty.handler.codec.http.HttpRequestDecoder;
 import io.netty.handler.codec.http.HttpResponseEncoder;
 import org.traccar.BaseProtocol;
@@ -34,7 +35,8 @@ public class OsmAndProtocol extends BaseProtocol {
             protected void addProtocolHandlers(PipelineBuilder pipeline, Config config) {
                 pipeline.addLast(new HttpResponseEncoder());
                 pipeline.addLast(new HttpRequestDecoder());
-                pipeline.addLast(new HttpObjectAggregator(MAX_HTTP_LENGTH));
+                pipeline.addLast(new HttpContentDecompressor());
+                pipeline.addLast(new HttpObjectAggregator(1024 * 1024));
                 pipeline.addLast(new OsmAndProtocolDecoder(OsmAndProtocol.this));
             }
         });

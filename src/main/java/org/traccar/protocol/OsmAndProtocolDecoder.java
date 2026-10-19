@@ -18,6 +18,9 @@ package org.traccar.protocol;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.DefaultFullHttpResponse;
+import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpResponseStatus;
@@ -32,6 +35,7 @@ import org.traccar.config.Keys;
 import org.traccar.helper.UnitsConverter;
 import org.traccar.session.DeviceSession;
 import org.traccar.Protocol;
+import org.traccar.NetworkMessage;
 import org.traccar.helper.DateUtil;
 import org.traccar.model.CellTower;
 import org.traccar.model.Command;
@@ -68,12 +72,59 @@ public class OsmAndProtocolDecoder extends BaseHttpProtocolDecoder {
     protected Object decode(Channel channel, SocketAddress remoteAddress, Object msg) throws Exception {
 
         FullHttpRequest request = (FullHttpRequest) msg;
+        if (new QueryStringDecoder(request.uri()).path().equals("/api/positions/batch")) {
+            return decodeBatch(channel, remoteAddress, request);
+        }
         String contentType = request.headers().get(HttpHeaderNames.CONTENT_TYPE);
         if (contentType != null && contentType.startsWith(HttpHeaderValues.APPLICATION_JSON.toString())) {
             return decodeJson(channel, remoteAddress, request);
         } else {
             return decodeQuery(channel, remoteAddress, request);
         }
+    }
+
+    private Object decodeBatch(Channel channel, SocketAddress remoteAddress, FullHttpRequest request) {
+        HttpResponseStatus status = HttpResponseStatus.OK;
+        List<Position> positions = null;
+        String error = null;
+        int accepted = 0;
+        try {
+            if (!request.method().equals(HttpMethod.POST)) {
+                throw new IllegalArgumentException("Use POST.");
+            }
+            var batch = OsmAndPositionBatch.parse(request.content().toString(StandardCharsets.UTF_8));
+            DeviceSession session = getDeviceSession(channel, remoteAddress, batch.deviceId());
+            if (session == null) {
+                status = HttpResponseStatus.UNPROCESSABLE_ENTITY;
+                error = "Aparelho desconhecido ou desativado.";
+            } else if (!OsmAndPositionBatch.allow(session.getDeviceId())) {
+                status = HttpResponseStatus.TOO_MANY_REQUESTS;
+                error = "Lotes demais deste aparelho; tente novamente em instantes.";
+            } else {
+                positions = batch.positions();
+                for (Position position : positions) {
+                    position.setDeviceId(session.getDeviceId());
+                    position.setProtocol(getProtocolName());
+                }
+                accepted = batch.accepted();
+            }
+        } catch (RuntimeException e) {
+            status = HttpResponseStatus.BAD_REQUEST;
+            error = "Corpo do lote inválido.";
+        }
+        var body = Json.createObjectBuilder().add("accepted", accepted);
+        if (error != null) {
+            body.add("error", error);
+        }
+        if (channel != null) {
+            var response = new DefaultFullHttpResponse(
+                    HttpVersion.HTTP_1_1, status,
+                    Unpooled.copiedBuffer(body.build().toString(), StandardCharsets.UTF_8));
+            response.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json");
+            response.headers().setInt(HttpHeaderNames.CONTENT_LENGTH, response.content().readableBytes());
+            channel.writeAndFlush(new NetworkMessage(response, remoteAddress));
+        }
+        return positions == null || positions.isEmpty() ? null : positions;
     }
 
     private Object decodeQuery(
