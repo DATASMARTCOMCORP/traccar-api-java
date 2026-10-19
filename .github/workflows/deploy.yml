@@ -1,0 +1,96 @@
+name: Deploy Production (SIR)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sir-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+      DEPLOY_SERVICE_NAME: ${{ vars.DEPLOY_SERVICE_NAME }}
+      DEPLOY_CONFIG_FILE: ${{ vars.DEPLOY_CONFIG_FILE }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Build and test
+        run: ./gradlew clean build --no-daemon --stacktrace
+      - name: Validate deployment and rollback
+        run: python3 scripts/test-deploy-production.py
+      - name: Prepare release and checksums
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          cp target/tracker-server.jar release/
+          cp -a target/lib schema templates release/
+          cd release
+          find . -type f -print0 | sort -z | xargs -0 sha256sum > ../SHA256SUMS
+          mv ../SHA256SUMS .
+      - name: Configure SSH and validate settings
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_PORT DEPLOY_PATH DEPLOY_SERVICE_NAME DEPLOY_CONFIG_FILE SSH_PRIVATE_KEY SSH_KNOWN_HOSTS; do
+            test -n "${!name}" || { echo "::error::Missing $name"; exit 1; }
+          done
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9.-]+$ ]]
+          [[ "$DEPLOY_USER" =~ ^[a-zA-Z0-9_-]+$ ]]
+          [[ "$DEPLOY_PORT" =~ ^[0-9]+$ ]]
+          [[ "$DEPLOY_PATH" =~ ^/[a-zA-Z0-9/_-]+$ && "$DEPLOY_PATH" != / ]]
+          [[ "$DEPLOY_SERVICE_NAME" =~ ^[a-zA-Z0-9_-]+$ ]]
+          [[ "$DEPLOY_CONFIG_FILE" =~ ^[a-zA-Z0-9/_.-]+$ && "$DEPLOY_CONFIG_FILE" != /* && "$DEPLOY_CONFIG_FILE" != *..* ]]
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<SSH
+          Host sir-production
+            HostName $DEPLOY_HOST
+            User $DEPLOY_USER
+            Port $DEPLOY_PORT
+            IdentityFile $RUNNER_TEMP/deploy_key
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            ConnectTimeout 20
+            ServerAliveInterval 15
+            ServerAliveCountMax 4
+          SSH
+          echo "RELEASE_DIR=/tmp/sir-tracker-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+      - name: Stage and verify release
+        run: |
+          set -euo pipefail
+          ssh sir-production "mkdir -p '$RELEASE_DIR'"
+          rsync -rc --copy-dest="$DEPLOY_PATH/lib" -e ssh release/lib/ "sir-production:$RELEASE_DIR/lib/"
+          rsync -rc --exclude lib/ -e ssh release/ "sir-production:$RELEASE_DIR/"
+          ssh sir-production "cd '$RELEASE_DIR' && sha256sum -c SHA256SUMS --quiet"
+      - name: Deploy with rollback
+        run: |
+          set -euo pipefail
+          ssh sir-production "sudo -n bash -s -- '$RELEASE_DIR' '$DEPLOY_PATH' '$DEPLOY_SERVICE_NAME' '$DEPLOY_CONFIG_FILE' '$GITHUB_SHA'" < scripts/deploy-production.sh
+      - name: Remove staging files and runner credentials
+        if: always()
+        run: |
+          if [[ -n "${RELEASE_DIR:-}" && -f "$RUNNER_TEMP/deploy_key" ]]; then
+            ssh sir-production "rm -rf -- '$RELEASE_DIR'" || true
+          fi
+          rm -f "$RUNNER_TEMP/deploy_key" ~/.ssh/config ~/.ssh/known_hosts
