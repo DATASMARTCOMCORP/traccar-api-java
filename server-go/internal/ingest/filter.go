@@ -22,7 +22,7 @@ func (p *Processor) filterHandler(ctx context.Context, dc *deviceContext, pos *m
 		return false, err
 	}
 	if len(types) > 0 {
-		p.log.Info("Position filtered by " + strings.Join(types, " ") + " filters from device: " + dc.device.UniqueID)
+		p.log.Info("Position filtered by " + strings.Join(types, " ") + " filters from device: " + dc.Device.UniqueID)
 		return true, nil
 	}
 	return false, nil
@@ -36,7 +36,7 @@ type filterRun struct {
 }
 
 func (f *filterRun) flag(ctx context.Context, k key) (bool, error) {
-	v, err := f.dc.lookupBool(ctx, k)
+	v, err := f.dc.Bool(ctx, k)
 	return v != nil && *v, err
 }
 
@@ -63,7 +63,7 @@ func (f *filterRun) run(ctx context.Context) ([]string, error) {
 	if err := add(outdated && pos.Outdated, err, "Outdated"); err != nil {
 		return nil, err
 	}
-	future, err := f.dc.lookupLong(ctx, keyFilterFuture, 64)
+	future, err := f.dc.Long(ctx, keyFilterFuture, 64)
 	if err != nil {
 		return nil, err
 	}
@@ -74,14 +74,14 @@ func (f *filterRun) run(ctx context.Context) ([]string, error) {
 	if pos.FixTime.Time.UnixMilli() > f.now.UnixMilli()+*future*1000 {
 		types = append(types, "Future")
 	}
-	past, err := f.dc.lookupLong(ctx, keyFilterPast, 64)
+	past, err := f.dc.Long(ctx, keyFilterPast, 64)
 	if err != nil {
 		return nil, err
 	}
 	if past != nil && pos.FixTime.Time.UnixMilli() < f.now.UnixMilli()-*past*1000 {
 		types = append(types, "Past")
 	}
-	accuracy, err := f.dc.lookupLong(ctx, keyFilterAccuracy, 32)
+	accuracy, err := f.dc.Long(ctx, keyFilterAccuracy, 32)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ func (f *filterRun) run(ctx context.Context) ([]string, error) {
 			types = append(types, "Static")
 		}
 	}
-	minDistance, err := f.dc.lookupLong(ctx, keyFilterDistance, 32)
+	minDistance, err := f.dc.Long(ctx, keyFilterDistance, 32)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ func (f *filterRun) run(ctx context.Context) ([]string, error) {
 			}
 		}
 	}
-	maxSpeed, err := f.dc.lookupLong(ctx, keyFilterMaxSpeed, 32)
+	maxSpeed, err := f.dc.Long(ctx, keyFilterMaxSpeed, 32)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +147,7 @@ func (f *filterRun) run(ctx context.Context) ([]string, error) {
 			types = append(types, "MaxSpeed")
 		}
 	}
-	minPeriod, err := f.dc.lookupLong(ctx, keyFilterMinPeriod, 32)
+	minPeriod, err := f.dc.Long(ctx, keyFilterMinPeriod, 32)
 	if err != nil {
 		return nil, err
 	}
@@ -157,12 +157,12 @@ func (f *filterRun) run(ctx context.Context) ([]string, error) {
 			types = append(types, "MinPeriod")
 		}
 	}
-	dailyLimit, err := f.dc.lookupLong(ctx, keyFilterDailyLimit, 32)
+	dailyLimit, err := f.dc.Long(ctx, keyFilterDailyLimit, 32)
 	if err != nil {
 		return nil, err
 	}
 	if dailyLimit != nil && int64(f.p.stats.messageStoredCount(pos.DeviceID)) >= *dailyLimit {
-		interval, err := f.dc.lookupLong(ctx, keyFilterDailyInterval, 32)
+		interval, err := f.dc.Long(ctx, keyFilterDailyInterval, 32)
 		if err != nil {
 			return nil, err
 		}
@@ -174,8 +174,8 @@ func (f *filterRun) run(ctx context.Context) ([]string, error) {
 			types = append(types, "DailyLimit")
 		}
 	}
-	if f.dc.device.CalendarID > 0 {
-		in, err := f.p.checkCalendar(ctx, f.dc.device.CalendarID, pos.FixTime.Time)
+	if f.dc.Device.CalendarID > 0 {
+		in, err := f.p.checkCalendar(ctx, f.dc.Device.CalendarID, pos.FixTime.Time)
 		if err != nil {
 			return nil, err
 		}
@@ -205,14 +205,14 @@ func (f *filterRun) duplicate(ctx context.Context, last *model.Position) (bool, 
 // last position is older than filter.skipLimit, or a filter.skipAttributes attribute
 // changed.
 func (f *filterRun) skip(ctx context.Context, last *model.Position) (bool, error) {
-	limit, err := f.dc.lookupLong(ctx, keyFilterSkipLimit, 64)
+	limit, err := f.dc.Long(ctx, keyFilterSkipLimit, 64)
 	if err != nil {
 		return false, err
 	}
 	if limit != nil && last != nil && f.pos.ServerTime.Time.UnixMilli()-last.ServerTime.Time.UnixMilli() > *limit*1000 {
 		return true, nil
 	}
-	list, err := f.dc.lookupString(ctx, keyFilterSkipAttrs)
+	list, err := f.dc.String(ctx, keyFilterSkipAttrs)
 	if err != nil {
 		return false, err
 	}

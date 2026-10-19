@@ -25,6 +25,7 @@ func (a *API) routes() {
 
 	a.mux.HandleFunc("/api/socket", a.serveSocket)
 
+	a.reportRoutes()
 	a.readRoutes()
 	a.writeRoutes()
 

@@ -97,6 +97,11 @@ jobs:
         run: |
           go run ./compat -pg-bin "$RUNNER_TEMP/pg/pgsql/bin" -suite notify
           go run ./compat -pg-bin "$RUNNER_TEMP/pg/pgsql/bin" -suite notify -b go -go-bin "$RUNNER_TEMP/sir-server"
+      - name: Reports suites (new and legacy trip logic), Java vs Java and Java vs Go (Step 9 gate)
+        run: |
+          go run ./compat -pg-bin "$RUNNER_TEMP/pg/pgsql/bin" -suite reports
+          go run ./compat -pg-bin "$RUNNER_TEMP/pg/pgsql/bin" -suite reports -b go -go-bin "$RUNNER_TEMP/sir-server"
+          go run ./compat -pg-bin "$RUNNER_TEMP/pg/pgsql/bin" -suite reports-legacy -b go -go-bin "$RUNNER_TEMP/sir-server"
       - name: Canary (must fail)
         run: |
           if go run ./compat -pg-bin "$RUNNER_TEMP/pg/pgsql/bin" -b-tz UTC > "$RUNNER_TEMP/canary.out"; then

@@ -72,6 +72,20 @@ func Equals(column string, value any) Cond {
 	return Cond{column + " = ?", []any{value}}
 }
 
+// AnyOf is Condition.Or of Equals: "(column = ? OR column = ? ...)".
+func AnyOf(column string, values ...any) Cond {
+	c := Cond{sql: "("}
+	for i, v := range values {
+		if i > 0 {
+			c.sql += " OR "
+		}
+		c.sql += column + " = ?"
+		c.args = append(c.args, v)
+	}
+	c.sql += ")"
+	return c
+}
+
 // Contains is Java's keyword search: LOWER(column) LIKE '%keyword%' on any of the
 // columns. Like Java, % and _ in the keyword are not escaped.
 func Contains(keyword string, columns ...string) Cond {

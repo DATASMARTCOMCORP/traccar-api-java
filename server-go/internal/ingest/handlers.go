@@ -104,7 +104,7 @@ func (p *Processor) timeHandler(ctx context.Context, dc *deviceContext, pos *mod
 	}
 	pos.FixTime = adjustRollover(now, pos.FixTime)
 
-	override, err := dc.lookupString(ctx, keyTimeOverride)
+	override, err := dc.String(ctx, keyTimeOverride)
 	if err != nil || override == nil {
 		return false, err
 	}
@@ -205,7 +205,7 @@ func (p *Processor) motionHandler(ctx context.Context, dc *deviceContext, pos *m
 	if pos.Attributes.Has(model.KeyMotion) {
 		return false, nil
 	}
-	threshold, err := dc.lookupDouble(ctx, keyMotionThreshold)
+	threshold, err := dc.Double(ctx, keyMotionThreshold)
 	if err != nil {
 		return false, err
 	}
@@ -245,7 +245,7 @@ var spaceOrComma = regexp.MustCompile(`[ ,]`)
 // copyAttributesHandler is CopyAttributesHandler: the listed attributes carry over from
 // the last position when the new one lacks them.
 func (p *Processor) copyAttributesHandler(ctx context.Context, dc *deviceContext, pos *model.Position) (bool, error) {
-	list, err := dc.lookupString(ctx, keyCopyAttributes)
+	list, err := dc.String(ctx, keyCopyAttributes)
 	if err != nil {
 		return false, err
 	}

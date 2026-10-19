@@ -133,7 +133,7 @@ func (p *Processor) overspeedEvents(ctx context.Context, dc *deviceContext, pos 
 	if !p.isLatest(pos) {
 		return nil, nil
 	}
-	limit, err := dc.lookupDouble(ctx, keySpeedLimit)
+	limit, err := dc.Double(ctx, keySpeedLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +156,7 @@ func (p *Processor) overspeedEvents(ctx context.Context, dc *deviceContext, pos 
 			if err != nil {
 				continue
 			}
-			current, err := g.Attributes.JavaDouble(keySpeedLimit.name, 0)
+			current, err := g.Attributes.JavaDouble(keySpeedLimit.Name, 0)
 			if err != nil {
 				return nil, err
 			}
@@ -174,7 +174,7 @@ func (p *Processor) overspeedEvents(ctx context.Context, dc *deviceContext, pos 
 		return nil, nil
 	}
 
-	d := dc.device
+	d := dc.Device
 	changed := false
 	var event *model.Event
 	check := func() {
@@ -204,7 +204,7 @@ func (p *Processor) overspeedEvents(ctx context.Context, dc *deviceContext, pos 
 		check()
 	}
 	if changed {
-		dc.device = d
+		dc.Device = d
 		if err := p.st.UpdateDeviceOverspeed(ctx, &d); err != nil {
 			p.log.Warn("Update device overspeed error", "error", err)
 		}
@@ -265,7 +265,7 @@ func (p *Processor) fuelEvents(ctx context.Context, dc *deviceContext, pos *mode
 	default:
 		return nil, nil
 	}
-	threshold, err := dc.lookupDouble(ctx, k)
+	threshold, err := dc.Double(ctx, k)
 	if err != nil {
 		return nil, err
 	}
@@ -358,7 +358,7 @@ func (p *Processor) proximityEvents(ctx context.Context, dc *deviceContext, pos 
 		return nil, err
 	}
 	distance := func(k key) (float64, error) {
-		v, err := dc.lookupDouble(ctx, k)
+		v, err := dc.Double(ctx, k)
 		if err != nil || v == nil {
 			return 0, err
 		}

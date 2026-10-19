@@ -30,6 +30,7 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/live"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/notify"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/protocol/all"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/reports"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/store"
 )
 
@@ -120,6 +121,9 @@ func run(ctx context.Context, args []string, stderr io.Writer) error {
 	}
 	apiOpts.SendCommand = proc.SendCommand
 	apiOpts.Live = hub
+	if apiOpts.Reports, err = reports.New(cfg, st, apiOpts.MaxPositions); err != nil {
+		return err
+	}
 	apiOpts.Ingest = proc
 	port, err := cfg.Int(config.WebPort, config.DefaultWebPort)
 	if err != nil {

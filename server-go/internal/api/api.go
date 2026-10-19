@@ -22,6 +22,7 @@ import (
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/config"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/live"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/model"
+	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/reports"
 	"github.com/DATASMARTCOMCORP/traccar-api-java/server-go/internal/store"
 )
 
@@ -50,6 +51,9 @@ type Options struct {
 	// SendCommand sends a command to the device's live connection (DeviceSession.
 	// sendCommand); sent is false when it has none that takes commands. Nil: none.
 	SendCommand func(ctx context.Context, c *model.Command) (sent bool, err error)
+
+	// Reports computes /api/reports (nil: the report endpoints fail).
+	Reports *reports.Reports
 
 	// Live is the hub of /api/socket; nil disables the socket.
 	Live *live.Hub

@@ -285,6 +285,7 @@ const (
 	EventDeviceOverspeed    = "deviceOverspeed"
 	EventDeviceFuelDrop     = "deviceFuelDrop"
 	EventDeviceFuelIncrease = "deviceFuelIncrease"
+	EventAllEvents          = "allEvents"
 	EventGeofenceEnter      = "geofenceEnter"
 	EventGeofenceExit       = "geofenceExit"
 	EventProximityEnter     = "proximityEnter"

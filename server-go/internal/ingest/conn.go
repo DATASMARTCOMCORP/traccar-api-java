@@ -88,8 +88,8 @@ func (c *Conn) UpdateNotificationToken(ctx context.Context, deviceID int64, toke
 	if err != nil {
 		return err
 	}
-	setString(&dc.device.Attributes, "notificationTokens", token)
-	return p.st.UpdateDeviceAttributes(ctx, &dc.device)
+	setString(&dc.Device.Attributes, "notificationTokens", token)
+	return p.st.UpdateDeviceAttributes(ctx, &dc.Device)
 }
 
 func (c *Conn) Device(ctx context.Context, deviceID int64) (*model.Device, error) {
@@ -111,7 +111,7 @@ func (c *Conn) Lookup(ctx context.Context, deviceID int64, name string, server, 
 	if err != nil {
 		return nil, err
 	}
-	return dc.raw(ctx, key{name: name, server: server, config: cfg})
+	return dc.Raw(ctx, key{Name: name, Server: server, Config: cfg})
 }
 
 func (c *Conn) Send(remote string, data any) {

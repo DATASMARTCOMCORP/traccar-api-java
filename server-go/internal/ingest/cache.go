@@ -76,7 +76,7 @@ func (c *positionCache) load(ctx context.Context, deviceID int64) ([]*model.Posi
 		return nil, model.Device{}, err
 	}
 	positions, err := c.loadPositions(ctx, dc)
-	return positions, dc.device, err
+	return positions, dc.Device, err
 }
 
 // columnStatus is the status column as Java reads it.
@@ -123,11 +123,11 @@ func (c *positionCache) positionID(deviceID int64) (int64, bool) {
 }
 
 func (c *positionCache) loadPositions(ctx context.Context, dc *deviceContext) ([]*model.Position, error) {
-	deviceID := dc.device.ID
-	if dc.device.PositionID <= 0 {
+	deviceID := dc.Device.ID
+	if dc.Device.PositionID <= 0 {
 		return nil, nil
 	}
-	latest, err := c.p.st.PositionOf(ctx, deviceID, dc.device.PositionID)
+	latest, err := c.p.st.PositionOf(ctx, deviceID, dc.Device.PositionID)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
 	}
@@ -137,7 +137,7 @@ func (c *positionCache) loadPositions(ctx context.Context, dc *deviceContext) ([
 	if !c.p.newTripLogic {
 		return []*model.Position{&latest}, nil
 	}
-	minDuration, err := dc.lookupLong(ctx, keyTripMinDuration, 64)
+	minDuration, err := dc.Long(ctx, keyTripMinDuration, 64)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +220,7 @@ func (c *positionCache) window(deviceID int64) []*model.Position {
 func (c *positionCache) update(ctx context.Context, dc *deviceContext, p *model.Position) error {
 	var minDuration int64
 	if c.p.newTripLogic {
-		v, err := dc.lookupLong(ctx, keyTripMinDuration, 64)
+		v, err := dc.Long(ctx, keyTripMinDuration, 64)
 		if err != nil {
 			return err
 		}

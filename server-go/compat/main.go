@@ -235,6 +235,8 @@ func runScenarios(ctx context.Context, scenarios []Scenario, filter *regexp.Rege
 			slog.Debug("step", "scenario", sc.Name, "step", label)
 			ra, errA := a.do(ctx, s)
 			rb, errB := b.do(ctx, s)
+			saveBody(a, sc.Name, i, ra)
+			saveBody(b, sc.Name, i, rb)
 			if errA != nil || errB != nil {
 				problems = append(problems, fmt.Sprintf("%s: error: A=%v B=%v", label, errA, errB))
 				if ra == nil || rb == nil {
@@ -315,4 +317,16 @@ func describe(s Step) string {
 		return "socket " + op.Name + " close"
 	}
 	return s.Method + " " + s.Path
+}
+
+// saveBody keeps a step's response body in the target's work directory (see -keep).
+func saveBody(r *side, scenario string, i int, resp *response) {
+	if resp == nil || len(resp.body) == 0 {
+		return
+	}
+	dir := filepath.Join(r.t.dir, "responses", scenario)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(dir, fmt.Sprintf("%03d", i+1)), resp.body, 0o644)
 }
