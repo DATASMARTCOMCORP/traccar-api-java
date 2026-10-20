@@ -41,6 +41,31 @@ public final class PositionUtil {
         return lastPosition == null || position.getFixTime().compareTo(lastPosition.getFixTime()) >= 0;
     }
 
+    /**
+     * A position is late when the device already has a newer one. Late positions are stored, but they never
+     * replace the latest position, and state built along the latest position does not move back to them.
+     */
+    public static boolean isLate(CacheManager cacheManager, Position position) {
+        Position lastPosition = cacheManager.getPosition(position.getDeviceId());
+        return lastPosition != null && position.getFixTime().before(lastPosition.getFixTime());
+    }
+
+    /**
+     * Returns the stored position of the same device right before (or after) the given one in fix time order,
+     * leaving out the position itself.
+     */
+    public static Position getNeighbor(
+            Storage storage, Position position, boolean before) throws StorageException {
+        Condition condition = new Condition.And(
+                new Condition.Equals("deviceId", position.getDeviceId()),
+                new Condition.Compare("fixTime", before ? "<" : ">", position.getFixTime()));
+        if (position.getId() != 0) {
+            condition = new Condition.And(condition, new Condition.Compare("id", "<>", position.getId()));
+        }
+        return storage.getObject(Position.class, new Request(
+                new Columns.All(), condition, new Order("fixTime", before, 1)));
+    }
+
     public static double calculateDistance(Position first, Position last, boolean useOdometer) {
         double distance;
         double firstOdometer = first.getDouble(Position.KEY_ODOMETER);

@@ -43,11 +43,13 @@ public class BufferingManager {
 
         private final ChannelHandlerContext context;
         private final Position position;
+        private final long sequence;
         private Timeout timeout;
 
-        private Holder(ChannelHandlerContext context, Position position) {
+        private Holder(ChannelHandlerContext context, Position position, long sequence) {
             this.context = context;
             this.position = position;
+            this.sequence = sequence;
         }
 
         private int compareTime(Date left, Date right) {
@@ -69,19 +71,28 @@ public class BufferingManager {
                 return deviceTimeResult;
             }
 
-            return position.getServerTime().compareTo(other.position.getServerTime());
+            int serverTimeResult = position.getServerTime().compareTo(other.position.getServerTime());
+            if (serverTimeResult != 0) {
+                return serverTimeResult;
+            }
+
+            // Distinct positions with equal times must not collapse into one set element
+            return Long.compare(sequence, other.sequence);
         }
     }
 
     private final Timer timer = new HashedWheelTimer();
     private final Callback callback;
     private final long threshold;
+    private final int limit;
+    private long sequence;
 
     private final Map<Long, TreeSet<Holder>> buffer = new HashMap<>();
 
     public BufferingManager(Config config, Callback callback) {
         this.callback = callback;
         threshold = config.getLong(Keys.SERVER_BUFFERING_THRESHOLD);
+        limit = config.getInteger(Keys.SERVER_BUFFERING_LIMIT);
     }
 
     private Timeout scheduleTimeout(Holder holder) {
@@ -103,13 +114,18 @@ public class BufferingManager {
             synchronized (buffer) {
                 LOGGER.debug("queued {}", position.getFixTime());
                 var queue = buffer.computeIfAbsent(position.getDeviceId(), k -> new TreeSet<>());
-                Holder holder = new Holder(context, position);
+                Holder holder = new Holder(context, position, sequence++);
                 holder.timeout = scheduleTimeout(holder);
                 queue.add(holder);
                 queue.tailSet(holder, false).forEach(h -> {
                     h.timeout.cancel();
                     h.timeout = scheduleTimeout(h);
                 });
+                while (queue.size() > limit) {
+                    Holder oldest = queue.pollFirst();
+                    oldest.timeout.cancel();
+                    oldest.context.executor().execute(() -> callback.onReleased(oldest.context, oldest.position));
+                }
             }
         } else {
             callback.onReleased(context, position);

@@ -355,6 +355,15 @@ public final class Keys {
             3000L);
 
     /**
+     * Most positions held in the buffer per device. When a device exceeds it, its oldest positions are released
+     * early, so a burst can't hold an unbounded amount of memory.
+     */
+    public static final ConfigKey<Integer> SERVER_BUFFERING_LIMIT = new IntegerConfigKey(
+            "server.buffering.limit",
+            List.of(KeyType.CONFIG),
+            1000);
+
+    /**
      * Server wide connection timeout value in seconds. See protocol timeout for more information.
      */
     public static final ConfigKey<Integer> SERVER_TIMEOUT = new IntegerConfigKey(
@@ -670,6 +679,97 @@ public final class Keys {
             "database.positionBatchInterval",
             List.of(KeyType.CONFIG),
             0L);
+
+    /**
+     * Oldest fix time, in seconds before now, that the OsmAnd batch endpoint stores. Older items are rejected.
+     * Receipts used for de-duplication are kept for this long (plus a day), so a redelivered item is either
+     * recognized as a duplicate or rejected as too old; it is never stored twice.
+     */
+    public static final ConfigKey<Long> INGEST_MAX_AGE = new LongConfigKey(
+            "ingest.maxAge",
+            List.of(KeyType.CONFIG),
+            7 * 86400L);
+
+    /**
+     * Newest fix time, in seconds after now, that the OsmAnd batch endpoint stores. Newer items are rejected.
+     */
+    public static final ConfigKey<Long> INGEST_MAX_FUTURE = new LongConfigKey(
+            "ingest.maxFuture",
+            List.of(KeyType.CONFIG),
+            3600L);
+
+    /**
+     * Seconds the OsmAnd batch endpoint waits for its positions to be processed before it reports the unfinished
+     * ones as failed. A failed item may still have been stored; resending it is safe.
+     */
+    public static final ConfigKey<Long> INGEST_TIMEOUT = new LongConfigKey(
+            "ingest.timeout",
+            List.of(KeyType.CONFIG),
+            30L);
+
+    /**
+     * Batches per minute the OsmAnd batch endpoint accepts from one device before answering 429. Zero disables
+     * the limit, for example when only a trusted queue consumer calls the endpoint.
+     */
+    public static final ConfigKey<Integer> INGEST_BATCHES_PER_MINUTE = new IntegerConfigKey(
+            "ingest.batchesPerMinute",
+            List.of(KeyType.CONFIG),
+            30);
+
+    /**
+     * Milliseconds a server waits for another one to finish processing a position of the same device. On
+     * timeout the position fails and its sender retries. PostgreSQL only; other databases use their own
+     * lock wait setting.
+     */
+    public static final ConfigKey<Long> PROCESSING_LOCK_TIMEOUT = new LongConfigKey(
+            "processing.lockTimeout",
+            List.of(KeyType.CONFIG),
+            10000L);
+
+    /**
+     * Threads that process positions. Each device always uses the same one, so a device waiting for its lock
+     * delays only the devices sharing its thread.
+     */
+    public static final ConfigKey<Integer> PROCESSING_WORKERS = new IntegerConfigKey(
+            "processing.workers",
+            List.of(KeyType.CONFIG),
+            16);
+
+    /**
+     * Positions waiting per processing thread before the connections sending to it stop being read. At twice
+     * this many, positions are refused (a batch item reports "failed" and is retried by its sender).
+     */
+    public static final ConfigKey<Integer> PROCESSING_QUEUE_LIMIT = new IntegerConfigKey(
+            "processing.queueLimit",
+            List.of(KeyType.CONFIG),
+            1000);
+
+    /**
+     * Milliseconds an outbox delivery attempt owns its entry. Another attempt may take the entry once this
+     * passes, so it must exceed the HTTP client timeouts, or a slow delivery is sent twice.
+     */
+    public static final ConfigKey<Long> OUTBOX_LEASE = new LongConfigKey(
+            "outbox.lease",
+            List.of(KeyType.CONFIG),
+            60000L);
+
+    /**
+     * Outbox deliveries in flight at once per server. A delivery right after commit that finds no free slot is
+     * left for the outbox task, which waits for slots and drains the backlog.
+     */
+    public static final ConfigKey<Integer> OUTBOX_CONCURRENCY = new IntegerConfigKey(
+            "outbox.concurrency",
+            List.of(KeyType.CONFIG),
+            32);
+
+    /**
+     * Record a receipt for single OsmAnd position requests too (`reportId` parameter, or the fix time and
+     * coordinates), so a report sent live and again in an offline batch is stored once.
+     */
+    public static final ConfigKey<Boolean> INGEST_LIVE_RECEIPTS = new BooleanConfigKey(
+            "ingest.liveReceipts",
+            List.of(KeyType.CONFIG),
+            true);
 
     /**
      * Maximum number of positions written in a single batch. Default value is 100, which is safe across all supported

@@ -147,11 +147,43 @@ dependencies {
     implementation "io.modelcontextprotocol.sdk:mcp-json-jackson2:1.1.3"
     testImplementation "org.mockito:mockito-core:5.23.0"
     testImplementation "org.junit.jupiter:junit-jupiter:6.1.0"
+    testImplementation "io.zonky.test:embedded-postgres:2.2.2"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
 
 test {
     useJUnitPlatform()
+    // ClassScanner lists a package from the first class directory that has it; with main first, the protocol
+    // and model scans see the server classes rather than the tests in the same packages
+    classpath = files(sourceSets.main.output.classesDirs) + classpath
+}
+
+// Pending Liquibase changesets on a disposable, production-shaped PostgreSQL (see docs/ingestion-validation.md)
+tasks.register('migrationCheck', JavaExec) {
+    group = 'verification'
+    classpath = files(sourceSets.main.output.classesDirs) + sourceSets.test.runtimeClasspath
+    mainClass = 'org.traccar.integration.MigrationCheck'
+    jvmArgs '-Xmx2g'
+    ['pgBin', 'positions', 'actions'].each { name ->
+        if (project.hasProperty(name)) {
+            systemProperty name, project.property(name)
+        }
+    }
+}
+
+// Load and recovery harness on a disposable PostgreSQL (see docs/ingestion-validation.md)
+tasks.register('loadTest', JavaExec) {
+    group = 'verification'
+    classpath = files(sourceSets.main.output.classesDirs) + sourceSets.test.runtimeClasspath
+    mainClass = 'org.traccar.integration.LoadTest'
+    jvmArgs '-Xmx6g'
+    ['pgBin', 'devices', 'interval', 'duration', 'instances', 'geofences', 'linksPerDevice', 'crossingSeconds',
+     'offlineShare', 'offlineEvery', 'killAt', 'restartAt', 'webhookDownFrom', 'webhookDownTo', 'maxInFlight',
+     'workers', 'pool'].each { name ->
+        if (project.hasProperty(name)) {
+            systemProperty name, project.property(name)
+        }
+    }
 }
 
 tasks.register('copyDependencies', Copy) {

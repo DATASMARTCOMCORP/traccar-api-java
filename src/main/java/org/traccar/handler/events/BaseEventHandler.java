@@ -26,6 +26,13 @@ public abstract class BaseEventHandler {
 
     public interface Callback {
         void eventDetected(Event event);
+
+        /**
+         * Reports an event that belongs to another stored position of the device than the one being analyzed.
+         */
+        default void eventDetected(Event event, Position position) {
+            eventDetected(event);
+        }
     }
 
     public void analyzePosition(Position position, Callback callback) {

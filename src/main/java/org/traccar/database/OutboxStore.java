@@ -1,0 +1,220 @@
+package org.traccar.database;
+
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.traccar.config.Config;
+import org.traccar.config.Keys;
+import org.traccar.storage.Storage;
+import org.traccar.storage.StorageException;
+
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Deliveries that leave the server (event webhook, notifications, position forwarding), written in the same
+ * transaction as the data they announce. A delivery is claimed for a while before it is attempted, and marked
+ * delivered after it succeeds; one whose claim expires is attempted again, by this server or another. Delivery
+ * is therefore at least once: a crash after sending and before marking resends it, and receivers must
+ * de-duplicate by the id inside the payload (the event id or position id).
+ */
+@Singleton
+public class OutboxStore {
+
+    public static final String EVENT = "event";
+    public static final String NOTIFY = "notify";
+    public static final String POSITION = "position";
+
+    /**
+     * An outbox row. {@code claimToken} is set on an entry returned by {@link #claim}: it identifies that claim
+     * and is required to finish it.
+     */
+    public record Entry(long id, String kind, long deviceId, long objectId, int attempts, String claimToken) {
+        Entry claimedBy(String token) {
+            return new Entry(id, kind, deviceId, objectId, attempts, token);
+        }
+    }
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(OutboxStore.class);
+
+    private final Storage storage;
+    private final long lease;
+    private final Semaphore slots;
+
+    @Inject
+    public OutboxStore(Config config, Storage storage) {
+        this.storage = storage;
+        lease = config.getLong(Keys.OUTBOX_LEASE);
+        slots = new Semaphore(config.getInteger(Keys.OUTBOX_CONCURRENCY));
+        long timeouts = config.getInteger(Keys.CLIENT_CONNECT_TIMEOUT) + config.getInteger(Keys.CLIENT_READ_TIMEOUT);
+        if (lease <= timeouts) {
+            LOGGER.warn("outbox.lease ({} ms) does not exceed the HTTP client timeouts ({} ms):"
+                    + " slow deliveries may be sent twice", lease, timeouts);
+        }
+    }
+
+    private static Timestamp now(long offsetMillis) {
+        return new Timestamp(System.currentTimeMillis() + offsetMillis);
+    }
+
+    /** Adds a delivery in the current transaction. */
+    public Entry add(String kind, long deviceId, long objectId) throws StorageException {
+        return storage.execute(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "INSERT INTO tc_outbox (kind, deviceid, objectid, createdat, attempts) VALUES (?, ?, ?, ?, 0)",
+                    Statement.RETURN_GENERATED_KEYS)) {
+                statement.setString(1, kind);
+                statement.setLong(2, deviceId);
+                statement.setLong(3, objectId);
+                statement.setTimestamp(4, now(0));
+                statement.executeUpdate();
+                try (ResultSet keys = statement.getGeneratedKeys()) {
+                    keys.next();
+                    return new Entry(keys.getLong(1), kind, deviceId, objectId, 0, null);
+                }
+            }
+        });
+    }
+
+    /**
+     * Takes a delivery for the lease time, under a new claim token. Returns the claimed entry, or null when
+     * another attempt holds it or it is done. Claim an entry only right before delivering it.
+     */
+    public Entry claim(Entry entry) throws StorageException {
+        String token = UUID.randomUUID().toString();
+        boolean claimed = storage.execute(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "UPDATE tc_outbox SET claimeduntil = ?, attempts = attempts + 1, claimtoken = ?"
+                            + " WHERE id = ? AND deliveredat IS NULL AND (claimeduntil IS NULL OR claimeduntil < ?)")) {
+                statement.setTimestamp(1, now(lease));
+                statement.setString(2, token);
+                statement.setLong(3, entry.id());
+                statement.setTimestamp(4, now(0));
+                return statement.executeUpdate() == 1;
+            }
+        });
+        return claimed ? entry.claimedBy(token) : null;
+    }
+
+    /**
+     * Starts a delivery: takes one of the {@code outbox.concurrency} delivery slots, waiting up to
+     * {@code waitMillis}, then claims the entry. Returns the claimed entry, or null when no slot freed up or
+     * the entry is not claimable; then nothing is held. A started delivery must end with {@link #finish}.
+     */
+    public Entry start(Entry entry, long waitMillis) throws StorageException {
+        try {
+            if (!slots.tryAcquire(waitMillis, TimeUnit.MILLISECONDS)) {
+                return null;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+        try {
+            Entry claimed = claim(entry);
+            if (claimed == null) {
+                slots.release();
+            }
+            return claimed;
+        } catch (StorageException | RuntimeException e) {
+            slots.release();
+            throw e;
+        }
+    }
+
+    /** Delivery slots free right now. */
+    public int idle() {
+        return slots.availablePermits();
+    }
+
+    /** Ends a started delivery: records the result under its claim and frees the slot. */
+    public void finish(Entry entry, boolean success) {
+        try {
+            boolean owned = success ? delivered(entry) : retryLater(entry);
+            if (!owned) {
+                LOGGER.warn("Outbox entry {} was taken over by another attempt; its result is not recorded",
+                        entry.id());
+            }
+        } catch (StorageException e) {
+            LOGGER.warn("Outbox entry {} update failed", entry.id(), e);
+        } finally {
+            slots.release();
+        }
+    }
+
+    /** Deliveries nobody holds, oldest first. */
+    public List<Entry> pending(int limit) throws StorageException {
+        return storage.execute(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "SELECT id, kind, deviceid, objectid, attempts FROM tc_outbox"
+                            + " WHERE deliveredat IS NULL AND (claimeduntil IS NULL OR claimeduntil < ?)"
+                            + " ORDER BY id")) {
+                statement.setTimestamp(1, now(0));
+                statement.setMaxRows(limit);
+                List<Entry> result = new ArrayList<>();
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    while (resultSet.next()) {
+                        result.add(new Entry(resultSet.getLong(1), resultSet.getString(2), resultSet.getLong(3),
+                                resultSet.getLong(4), resultSet.getInt(5), null));
+                    }
+                }
+                return result;
+            }
+        });
+    }
+
+    /**
+     * Marks a claimed delivery done. False when the claim was lost: it expired and another attempt took the
+     * entry, which now decides its fate.
+     */
+    public boolean delivered(Entry entry) throws StorageException {
+        return storage.execute(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "UPDATE tc_outbox SET deliveredat = ?, claimeduntil = NULL"
+                            + " WHERE id = ? AND claimtoken = ? AND deliveredat IS NULL")) {
+                statement.setTimestamp(1, now(0));
+                statement.setLong(2, entry.id());
+                statement.setString(3, entry.claimToken());
+                return statement.executeUpdate() == 1;
+            }
+        });
+    }
+
+    /**
+     * Keeps a failed claimed delivery until it may be attempted again: 5 s doubling up to 10 min. False when
+     * the claim was lost.
+     */
+    public boolean retryLater(Entry entry) throws StorageException {
+        long delay = Math.min(600_000L, 5_000L << Math.min(entry.attempts(), 7));
+        return storage.execute(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "UPDATE tc_outbox SET claimeduntil = ?"
+                            + " WHERE id = ? AND claimtoken = ? AND deliveredat IS NULL")) {
+                statement.setTimestamp(1, now(delay));
+                statement.setLong(2, entry.id());
+                statement.setString(3, entry.claimToken());
+                return statement.executeUpdate() == 1;
+            }
+        });
+    }
+
+    public void removeDelivered(Date before) throws StorageException {
+        storage.execute(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "DELETE FROM tc_outbox WHERE deliveredat < ?")) {
+                statement.setTimestamp(1, new Timestamp(before.getTime()));
+                return statement.executeUpdate();
+            }
+        });
+    }
+
+}

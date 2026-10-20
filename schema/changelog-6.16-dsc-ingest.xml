@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+  xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                      http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.4.xsd"
+  logicalFilePath="changelog-6.16-dsc-ingest">
+
+  <!--
+    One row per stored report, keyed by the report's stable id. Written in the same transaction as the
+    tc_positions row, so a redelivered report is recognized instead of stored twice. positionid has no
+    foreign key because tc_positions may be a TimescaleDB hypertable without a primary key.
+  -->
+  <changeSet author="dsc-trackhub" id="changelog-6.16-dsc-ingest">
+
+    <createTable tableName="tc_position_receipts">
+      <column name="deviceid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="eventid" type="VARCHAR(128)">
+        <constraints nullable="false" />
+      </column>
+      <column name="positionid" type="BIGINT">
+        <constraints nullable="false" />
+      </column>
+      <column name="fixtime" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+    </createTable>
+
+    <addPrimaryKey tableName="tc_position_receipts" columnNames="deviceid, eventid"
+                   constraintName="pk_position_receipts" />
+
+    <addForeignKeyConstraint baseTableName="tc_position_receipts" baseColumnNames="deviceid"
+                             constraintName="fk_position_receipts_deviceid"
+                             referencedTableName="tc_devices" referencedColumnNames="id" onDelete="CASCADE" />
+
+    <createIndex tableName="tc_position_receipts" indexName="idx_position_receipts_fixtime">
+      <column name="fixtime" />
+    </createIndex>
+
+  </changeSet>
+
+  <!--
+    Crash-safe processing. Deliveries to the outside (event webhook, notifications, position forwarding) are
+    written in the same transaction as the data they announce and sent after the commit, at least once.
+    Reports outside the accepted age are kept aside instead of dropped. Late positions record the interval
+    whose derived results (trips, motion, overspeed) they make incomplete.
+  -->
+  <changeSet author="dsc-trackhub" id="changelog-6.16-dsc-outbox">
+
+    <createTable tableName="tc_outbox">
+      <column name="id" type="BIGINT" autoIncrement="true">
+        <constraints primaryKey="true" />
+      </column>
+      <column name="kind" type="VARCHAR(16)">
+        <constraints nullable="false" />
+      </column>
+      <column name="deviceid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="objectid" type="BIGINT">
+        <constraints nullable="false" />
+      </column>
+      <column name="createdat" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+      <column name="claimeduntil" type="TIMESTAMP" />
+      <column name="deliveredat" type="TIMESTAMP" />
+      <column name="attempts" type="INT" defaultValueNumeric="0">
+        <constraints nullable="false" />
+      </column>
+    </createTable>
+
+    <createIndex tableName="tc_outbox" indexName="idx_outbox_pending">
+      <column name="deliveredat" />
+      <column name="claimeduntil" />
+    </createIndex>
+
+    <createTable tableName="tc_position_quarantine">
+      <column name="deviceid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="eventid" type="VARCHAR(128)">
+        <constraints nullable="false" />
+      </column>
+      <column name="fixtime" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+      <column name="reason" type="VARCHAR(32)">
+        <constraints nullable="false" />
+      </column>
+      <column name="receivedat" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+      <column name="position" type="TEXT">
+        <constraints nullable="false" />
+      </column>
+    </createTable>
+
+    <addPrimaryKey tableName="tc_position_quarantine" columnNames="deviceid, eventid"
+                   constraintName="pk_position_quarantine" />
+
+    <addForeignKeyConstraint baseTableName="tc_position_quarantine" baseColumnNames="deviceid"
+                             constraintName="fk_position_quarantine_deviceid"
+                             referencedTableName="tc_devices" referencedColumnNames="id" onDelete="CASCADE" />
+
+    <createTable tableName="tc_late_positions">
+      <column name="id" type="BIGINT" autoIncrement="true">
+        <constraints primaryKey="true" />
+      </column>
+      <column name="deviceid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="positionid" type="BIGINT">
+        <constraints nullable="false" />
+      </column>
+      <column name="fromtime" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+      <column name="totime" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+      <column name="createdat" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+      <column name="completedat" type="TIMESTAMP" />
+    </createTable>
+
+    <addForeignKeyConstraint baseTableName="tc_late_positions" baseColumnNames="deviceid"
+                             constraintName="fk_late_positions_deviceid"
+                             referencedTableName="tc_devices" referencedColumnNames="id" onDelete="CASCADE" />
+
+    <createIndex tableName="tc_late_positions" indexName="idx_late_positions_pending">
+      <column name="deviceid" />
+      <column name="completedat" />
+    </createIndex>
+
+  </changeSet>
+
+  <!--
+    Owner of an outbox claim: a new token on every claim. Marking an entry delivered or rescheduling it
+    requires the token, so an attempt whose claim expired and was taken over can't overwrite the new owner.
+    A nullable column without default: no table rewrite.
+  -->
+  <changeSet author="dsc-trackhub" id="changelog-6.16-dsc-outbox-claim">
+    <addColumn tableName="tc_outbox">
+      <column name="claimtoken" type="VARCHAR(36)" />
+    </addColumn>
+  </changeSet>
+
+  <!--
+    Loading a device into a server's cache reads its geofence links by device id. Without an index that is a
+    scan of every link of the fleet, once per device on every server start or device move.
+  -->
+  <changeSet author="dsc-trackhub" id="changelog-6.16-dsc-device-geofence-index">
+    <preConditions onFail="MARK_RAN">
+      <not>
+        <indexExists tableName="tc_device_geofence" indexName="idx_device_geofence_deviceid" />
+      </not>
+    </preConditions>
+    <createIndex tableName="tc_device_geofence" indexName="idx_device_geofence_deviceid">
+      <column name="deviceid" />
+    </createIndex>
+  </changeSet>
+
+</databaseChangeLog>

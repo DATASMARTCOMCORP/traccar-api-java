@@ -16,28 +16,42 @@
 package org.traccar.handler.events;
 
 import jakarta.inject.Inject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.helper.model.PositionUtil;
 import org.traccar.model.Calendar;
 import org.traccar.model.Event;
 import org.traccar.model.Geofence;
 import org.traccar.model.Position;
 import org.traccar.session.cache.CacheManager;
+import org.traccar.storage.Storage;
+import org.traccar.storage.StorageException;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.TreeSet;
 
 public class GeofenceEventHandler extends BaseEventHandler {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(GeofenceEventHandler.class);
+
     private final CacheManager cacheManager;
+    private final Storage storage;
 
     @Inject
-    public GeofenceEventHandler(CacheManager cacheManager) {
+    public GeofenceEventHandler(CacheManager cacheManager, Storage storage) {
         this.cacheManager = cacheManager;
+        this.storage = storage;
     }
 
     @Override
     public void onPosition(Position position, Callback callback) {
         if (!PositionUtil.isLatest(cacheManager, position)) {
+            try {
+                onLatePosition(position, callback);
+            } catch (StorageException e) {
+                LOGGER.warn("Failed to load neighbor positions", e);
+            }
             return;
         }
 
@@ -55,25 +69,67 @@ public class GeofenceEventHandler extends BaseEventHandler {
         }
 
         for (long geofenceId : oldGeofences) {
-            Geofence geofence = cacheManager.getObject(Geofence.class, geofenceId);
-            if (geofence != null) {
-                long calendarId = geofence.getCalendarId();
-                Calendar calendar = calendarId != 0 ? cacheManager.getObject(Calendar.class, calendarId) : null;
-                if (calendar == null || calendar.checkMoment(position.getFixTime())) {
-                    Event event = new Event(Event.TYPE_GEOFENCE_EXIT, position);
-                    event.setGeofenceId(geofenceId);
-                    callback.eventDetected(event);
-                }
-            }
+            detected(Event.TYPE_GEOFENCE_EXIT, geofenceId, position, false, callback);
         }
         for (long geofenceId : newGeofences) {
-            long calendarId = cacheManager.getObject(Geofence.class, geofenceId).getCalendarId();
-            Calendar calendar = calendarId != 0 ? cacheManager.getObject(Calendar.class, calendarId) : null;
-            if (calendar == null || calendar.checkMoment(position.getFixTime())) {
-                Event event = new Event(Event.TYPE_GEOFENCE_ENTER, position);
-                event.setGeofenceId(geofenceId);
+            detected(Event.TYPE_GEOFENCE_ENTER, geofenceId, position, false, callback);
+        }
+    }
+
+    /**
+     * A late position falls between two stored positions, previous and next. Events for the step from previous
+     * to next were already decided when next arrived. If the late position is on the other side of a geofence
+     * boundary than both of them, the device went in and out (or out and in) without anyone noticing: report the
+     * crossing at the late position and the crossing back at next. When previous and next differ, the change
+     * was already reported at next and nothing is added.
+     */
+    private void onLatePosition(Position position, Callback callback) throws StorageException {
+        Position next = PositionUtil.getNeighbor(storage, position, false);
+        if (next == null) {
+            return;
+        }
+        Position previous = PositionUtil.getNeighbor(storage, position, true);
+        Set<Long> before = geofences(previous);
+        Set<Long> after = geofences(next);
+        Set<Long> current = geofences(position);
+
+        Set<Long> candidates = new TreeSet<>(current);
+        candidates.addAll(before);
+        for (long geofenceId : candidates) {
+            boolean inside = current.contains(geofenceId);
+            if (before.contains(geofenceId) == after.contains(geofenceId) && before.contains(geofenceId) != inside) {
+                String type = inside ? Event.TYPE_GEOFENCE_ENTER : Event.TYPE_GEOFENCE_EXIT;
+                String backType = inside ? Event.TYPE_GEOFENCE_EXIT : Event.TYPE_GEOFENCE_ENTER;
+                detected(type, geofenceId, position, true, callback);
+                detected(backType, geofenceId, next, true, callback);
+            }
+        }
+    }
+
+    private static Set<Long> geofences(Position position) {
+        if (position == null || position.getGeofenceIds() == null) {
+            return Set.of();
+        }
+        return new HashSet<>(position.getGeofenceIds());
+    }
+
+    private void detected(String type, long geofenceId, Position position, boolean late, Callback callback) {
+        Geofence geofence = cacheManager.getObject(Geofence.class, geofenceId);
+        if (geofence == null) {
+            return;
+        }
+        long calendarId = geofence.getCalendarId();
+        Calendar calendar = calendarId != 0 ? cacheManager.getObject(Calendar.class, calendarId) : null;
+        if (calendar == null || calendar.checkMoment(position.getFixTime())) {
+            Event event = new Event(type, position);
+            event.setGeofenceId(geofenceId);
+            if (late) {
+                event.set(Event.KEY_LATE, true);
+                callback.eventDetected(event, position);
+            } else {
                 callback.eventDetected(event);
             }
         }
     }
+
 }
