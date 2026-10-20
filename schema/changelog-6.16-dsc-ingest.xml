@@ -149,4 +149,19 @@
     </addColumn>
   </changeSet>
 
+  <!--
+    Loading a device into a server's cache reads its geofence links by device id. Without an index that is a
+    scan of every link of the fleet, once per device on every server start or device move.
+  -->
+  <changeSet author="dsc-trackhub" id="changelog-6.16-dsc-device-geofence-index">
+    <preConditions onFail="MARK_RAN">
+      <not>
+        <indexExists tableName="tc_device_geofence" indexName="idx_device_geofence_deviceid" />
+      </not>
+    </preConditions>
+    <createIndex tableName="tc_device_geofence" indexName="idx_device_geofence_deviceid">
+      <column name="deviceid" />
+    </createIndex>
+  </changeSet>
+
 </databaseChangeLog>
