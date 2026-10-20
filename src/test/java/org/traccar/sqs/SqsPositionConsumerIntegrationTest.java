@@ -1,5 +1,11 @@
 package org.traccar.sqs;
 
+import io.netty.channel.embedded.EmbeddedChannel;
+import io.netty.handler.codec.http.DefaultFullHttpRequest;
+import io.netty.handler.codec.http.FullHttpResponse;
+import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.HttpVersion;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.traccar.ProcessingHandler;
@@ -9,6 +15,7 @@ import org.traccar.database.DeviceLookupService;
 import org.traccar.database.IngestOutcome;
 import org.traccar.model.Device;
 import org.traccar.model.Position;
+import org.traccar.session.ConnectionManager;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
@@ -30,7 +37,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Runs the consumer against a real SQS-compatible server, with the processing mocked. Opt-in: set SQS_ENDPOINT,
+ * Runs the publisher and the consumer against a real SQS-compatible server, with the processing mocked. Opt-in: set SQS_ENDPOINT,
  * for example to a local ElasticMQ ({@code docker run -p 9324:9324 softwaremill/elasticmq-native}).
  */
 @EnabledIfEnvironmentVariable(named = "SQS_ENDPOINT", matches = ".+")
@@ -61,6 +68,53 @@ class SqsPositionConsumerIntegrationTest {
     }
 
     @Test
+    void carriesReportsFromThePublisherToProcessing() throws Exception {
+        try (var admin = client()) {
+            String queueUrl = admin.createQueue(request -> request
+                    .queueName("positions-" + UUID.randomUUID().toString().substring(0, 8))).join().queueUrl();
+            var config = new Config();
+            config.setString(Keys.SQS_QUEUE_URL, queueUrl);
+
+            var device = new Device();
+            device.setId(7);
+            device.setUniqueId("phone");
+            var deviceLookupService = mock(DeviceLookupService.class);
+            when(deviceLookupService.lookup(any())).thenReturn(device);
+            var processingHandler = mock(ProcessingHandler.class);
+            List<Position> processed = new CopyOnWriteArrayList<>();
+            doAnswer(invocation -> {
+                Position position = invocation.getArgument(0);
+                processed.add(position);
+                position.getIngestTicket().complete(IngestOutcome.stored(1));
+                return null;
+            }).when(processingHandler).process(any());
+
+            try (var publisherClient = client()) {
+                var channel = new EmbeddedChannel(new SqsPositionPublisher(publisherClient, queueUrl));
+                channel.writeInbound(new DefaultFullHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.POST,
+                        "/?id=phone&lat=-22.5&lon=-43.1&timestamp=2026-10-20T10:00:00Z&speed=12&reportId=r1"));
+                waitFor(() -> {
+                    channel.runPendingTasks();
+                    return channel.outboundMessages().size() == 1;
+                });
+                assertEquals(HttpResponseStatus.OK, ((FullHttpResponse) channel.readOutbound()).status());
+            }
+
+            var consumer = new SqsPositionConsumer(config, client(), processingHandler, deviceLookupService,
+                    mock(ConnectionManager.class));
+            consumer.start();
+            try {
+                waitFor(() -> count(admin, queueUrl) == 0 && processed.size() == 1);
+                assertEquals("r1", processed.getFirst().getIngestTicket().getEventId());
+                assertEquals(7, processed.getFirst().getDeviceId());
+                assertEquals(-22.5, processed.getFirst().getLatitude());
+            } finally {
+                consumer.stop();
+            }
+        }
+    }
+
+    @Test
     void consumesDeletesAndDeadLetters() throws Exception {
         try (var admin = client()) {
             String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -87,7 +141,8 @@ class SqsPositionConsumerIntegrationTest {
                 return null;
             }).when(processingHandler).process(any());
 
-            var consumer = new SqsPositionConsumer(config, client(), processingHandler, deviceLookupService);
+            var consumer = new SqsPositionConsumer(config, client(), processingHandler, deviceLookupService,
+                    mock(ConnectionManager.class));
             consumer.start();
             try {
                 admin.sendMessage(request -> request.queueUrl(queueUrl).messageBody(

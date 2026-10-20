@@ -1,0 +1,15 @@
+[Unit]
+Description=traccar SQS publisher
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/traccar-sqs-publisher
+ExecStart=/opt/traccar/jre/bin/java -Xmx256m -XX:+ExitOnOutOfMemoryError -cp tracker-server.jar:lib/* org.traccar.sqs.SqsPublisherMain conf/publisher.xml
+SyslogIdentifier=traccar-sqs-publisher
+SuccessExitStatus=143
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

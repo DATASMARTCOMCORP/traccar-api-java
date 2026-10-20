@@ -766,6 +766,22 @@ public final class Keys {
             1000);
 
     /**
+     * Port of the SQS publisher, the separate process ({@code org.traccar.sqs.SqsPublisherMain}) that accepts
+     * OsmAnd reports and publishes them to {@code sqs.queueUrl} without touching the database.
+     */
+    public static final ConfigKey<Integer> SQS_PUBLISHER_PORT = new IntegerConfigKey(
+            "sqs.publisher.port",
+            List.of(KeyType.CONFIG),
+            8090);
+
+    /**
+     * Address the SQS publisher listens on. Empty listens on all addresses.
+     */
+    public static final ConfigKey<String> SQS_PUBLISHER_ADDRESS = new StringConfigKey(
+            "sqs.publisher.address",
+            List.of(KeyType.CONFIG));
+
+    /**
      * Milliseconds a server waits for another one to finish processing a position of the same device. On
      * timeout the position fails and its sender retries. PostgreSQL only; other databases use their own
      * lock wait setting.

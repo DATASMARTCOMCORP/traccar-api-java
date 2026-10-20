@@ -8,6 +8,7 @@ import org.traccar.database.DeviceLookupService;
 import org.traccar.database.IngestOutcome;
 import org.traccar.model.Device;
 import org.traccar.model.Position;
+import org.traccar.session.ConnectionManager;
 import software.amazon.awssdk.services.sqs.SqsAsyncClient;
 import software.amazon.awssdk.services.sqs.model.BatchResultErrorEntry;
 import software.amazon.awssdk.services.sqs.model.ChangeMessageVisibilityBatchRequest;
@@ -30,6 +31,8 @@ import java.util.function.Function;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -90,6 +93,7 @@ class SqsPositionConsumerTest {
 
     private final FakeSqs sqs = new FakeSqs();
     private final ProcessingHandler processingHandler = mock(ProcessingHandler.class);
+    private final ConnectionManager connectionManager = mock(ConnectionManager.class);
     private final List<Position> processed = new ArrayList<>();
 
     private SqsPositionConsumer consumer(boolean deadLetterQueue, Function<Position, IngestOutcome> outcome) {
@@ -110,7 +114,7 @@ class SqsPositionConsumerTest {
             position.getIngestTicket().complete(outcome.apply(position));
             return null;
         }).when(processingHandler).process(any());
-        return new SqsPositionConsumer(config, sqs, processingHandler, deviceLookupService);
+        return new SqsPositionConsumer(config, sqs, processingHandler, deviceLookupService, connectionManager);
     }
 
     private static Message message(String id, String body) {
@@ -147,6 +151,7 @@ class SqsPositionConsumerTest {
         assertEquals("receipt-a", sqs.deletes.getFirst().entries().getFirst().receiptHandle());
         assertTrue(sqs.visibilityChanges.isEmpty());
         assertTrue(sqs.sends.isEmpty());
+        verify(connectionManager).updateDevice(eq(7L), eq(Device.STATUS_ONLINE), any());
     }
 
     @Test
@@ -201,6 +206,7 @@ class SqsPositionConsumerTest {
         assertTrue(sqs.sends.isEmpty());
         assertTrue(sqs.deletes.isEmpty());
         verify(processingHandler, never()).process(any());
+        verify(connectionManager, never()).updateDevice(anyLong(), any(), any());
     }
 
     @Test

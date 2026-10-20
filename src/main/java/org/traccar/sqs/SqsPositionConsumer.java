@@ -11,6 +11,7 @@ import org.traccar.database.IngestOutcome;
 import org.traccar.model.Device;
 import org.traccar.model.Position;
 import org.traccar.protocol.OsmAndPositionBatch;
+import org.traccar.session.ConnectionManager;
 import software.amazon.awssdk.services.sqs.SqsAsyncClient;
 import software.amazon.awssdk.services.sqs.model.ChangeMessageVisibilityBatchRequestEntry;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageBatchRequestEntry;
@@ -21,6 +22,7 @@ import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse;
 import software.amazon.awssdk.services.sqs.model.SendMessageBatchRequestEntry;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -75,6 +77,7 @@ public class SqsPositionConsumer implements LifecycleObject {
     private final SqsAsyncClient sqs;
     private final ProcessingHandler processingHandler;
     private final DeviceLookupService deviceLookupService;
+    private final ConnectionManager connectionManager;
     private final String queueUrl;
     private final String deadLetterQueueUrl;
     private final int pollers;
@@ -88,11 +91,12 @@ public class SqsPositionConsumer implements LifecycleObject {
     private volatile boolean running;
 
     public SqsPositionConsumer(
-            Config config, SqsAsyncClient sqs,
-            ProcessingHandler processingHandler, DeviceLookupService deviceLookupService) {
+            Config config, SqsAsyncClient sqs, ProcessingHandler processingHandler,
+            DeviceLookupService deviceLookupService, ConnectionManager connectionManager) {
         this.sqs = sqs;
         this.processingHandler = processingHandler;
         this.deviceLookupService = deviceLookupService;
+        this.connectionManager = connectionManager;
         queueUrl = config.getString(Keys.SQS_QUEUE_URL);
         deadLetterQueueUrl = config.getString(Keys.SQS_DEAD_LETTER_QUEUE_URL);
         pollers = config.getInteger(Keys.SQS_POLLERS);
@@ -211,6 +215,8 @@ public class SqsPositionConsumer implements LifecycleObject {
                     .completeOnTimeout(IngestOutcome.failed("timeout"), timeout, TimeUnit.SECONDS));
         }
         positions.forEach(processingHandler::process);
+        // Like a report arriving on the OsmAnd port: the device is online until the status timeout passes
+        connectionManager.updateDevice(deviceId, Device.STATUS_ONLINE, new Date());
         return CompletableFuture.allOf(outcomes.toArray(CompletableFuture[]::new))
                 .thenApply(ignore -> decide(batch));
     }
