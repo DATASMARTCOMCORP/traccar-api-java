@@ -35,6 +35,7 @@ import org.traccar.broadcast.RedisBroadcastService;
 import org.traccar.broadcast.NullBroadcastService;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
+import org.traccar.database.DeviceLookupService;
 import org.traccar.database.LdapProvider;
 import org.traccar.database.OpenIdProvider;
 import org.traccar.database.StatisticsManager;
@@ -105,6 +106,9 @@ import org.traccar.storage.DatabaseStorage;
 import org.traccar.storage.MemoryStorage;
 import org.traccar.storage.Storage;
 import org.traccar.web.WebServer;
+import org.traccar.sqs.SqsPositionConsumer;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.sqs.SqsAsyncClient;
 import org.traccar.api.security.LoginService;
 
 import jakarta.annotation.Nullable;
@@ -112,6 +116,7 @@ import jakarta.inject.Singleton;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
 import java.io.IOException;
+import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Properties;
 import java.util.concurrent.ExecutorService;
@@ -220,6 +225,23 @@ public class MainModule extends AbstractModule {
             return new WebServer(injector, config);
         }
         return null;
+    }
+
+    @Singleton
+    @Provides
+    public static SqsPositionConsumer provideSqsPositionConsumer(
+            Config config, ProcessingHandler processingHandler, DeviceLookupService deviceLookupService) {
+        if (!config.hasKey(Keys.SQS_QUEUE_URL)) {
+            return null;
+        }
+        var builder = SqsAsyncClient.builder();
+        if (config.hasKey(Keys.SQS_REGION)) {
+            builder.region(Region.of(config.getString(Keys.SQS_REGION)));
+        }
+        if (config.hasKey(Keys.SQS_ENDPOINT)) {
+            builder.endpointOverride(URI.create(config.getString(Keys.SQS_ENDPOINT)));
+        }
+        return new SqsPositionConsumer(config, builder.build(), processingHandler, deviceLookupService);
     }
 
     @Singleton

@@ -20,8 +20,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Offline positions use the same units and attributes as the OsmAnd form decoder. */
-final class OsmAndPositionBatch {
+/**
+ * Offline positions use the same units and attributes as the OsmAnd form decoder. The same format is read from the
+ * HTTP batch endpoint and from the SQS queue.
+ */
+public final class OsmAndPositionBatch {
 
     static final int MAX_ID_LENGTH = 128;
 
@@ -29,12 +32,12 @@ final class OsmAndPositionBatch {
      * One element of the request. Exactly one of position, rejection and original is set: a position to
      * process, a final answer known from the item alone, or an earlier item of the batch with the same id.
      */
-    record Item(int index, String id, Position position, IngestOutcome rejection, Item original) { }
+    public record Item(int index, String id, Position position, IngestOutcome rejection, Item original) { }
 
-    record Batch(String deviceId, List<Item> items) {
+    public record Batch(String deviceId, List<Item> items) {
 
         /** Positions to process, in fix time order. */
-        List<Position> positions() {
+        public List<Position> positions() {
             return items.stream()
                     .filter(item -> item.position() != null)
                     .map(Item::position)
@@ -65,7 +68,7 @@ final class OsmAndPositionBatch {
      * Parses a batch. Items without a usable time, coordinates or id are rejected; that answer is final, so they
      * never block the sender's queue. The accepted age is checked later, for single requests too (ReceiptHandler).
      */
-    static Batch parse(String body) {
+    public static Batch parse(String body) {
         JsonObject root;
         try (var reader = Json.createReader(new StringReader(body))) {
             root = reader.readObject();

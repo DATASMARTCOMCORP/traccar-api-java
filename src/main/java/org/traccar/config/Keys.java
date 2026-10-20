@@ -717,6 +717,55 @@ public final class Keys {
             30);
 
     /**
+     * URL of the SQS queue to consume positions from. Each message body has the OsmAnd batch format. Setting it
+     * starts the consumer on every server. Credentials come from the default AWS chain (the instance role).
+     */
+    public static final ConfigKey<String> SQS_QUEUE_URL = new StringConfigKey(
+            "sqs.queueUrl",
+            List.of(KeyType.CONFIG));
+
+    /**
+     * URL of the dead-letter queue that receives messages the consumer can never process, such as a body that
+     * cannot be parsed or an unknown device, with the reason as a message attribute. Without it, such messages
+     * stay in the main queue until its redrive policy moves them.
+     */
+    public static final ConfigKey<String> SQS_DEAD_LETTER_QUEUE_URL = new StringConfigKey(
+            "sqs.deadLetterQueueUrl",
+            List.of(KeyType.CONFIG));
+
+    /**
+     * AWS region of the SQS queues. Empty uses the default AWS region chain.
+     */
+    public static final ConfigKey<String> SQS_REGION = new StringConfigKey(
+            "sqs.region",
+            List.of(KeyType.CONFIG));
+
+    /**
+     * SQS endpoint override, for a local SQS-compatible server in tests.
+     */
+    public static final ConfigKey<String> SQS_ENDPOINT = new StringConfigKey(
+            "sqs.endpoint",
+            List.of(KeyType.CONFIG));
+
+    /**
+     * Concurrent receive loops of the SQS consumer. Each takes up to 10 messages and waits for their outcomes
+     * before the next receive, so this bounds the messages in flight on a server.
+     */
+    public static final ConfigKey<Integer> SQS_POLLERS = new IntegerConfigKey(
+            "sqs.pollers",
+            List.of(KeyType.CONFIG),
+            2);
+
+    /**
+     * Positions pending in the processing workers above which the SQS consumer stops receiving until they go
+     * down, so a queue backlog does not crowd out positions arriving from devices.
+     */
+    public static final ConfigKey<Integer> SQS_PAUSE_THRESHOLD = new IntegerConfigKey(
+            "sqs.pauseThreshold",
+            List.of(KeyType.CONFIG),
+            1000);
+
+    /**
      * Milliseconds a server waits for another one to finish processing a position of the same device. On
      * timeout the position fails and its sender retries. PostgreSQL only; other databases use their own
      * lock wait setting.

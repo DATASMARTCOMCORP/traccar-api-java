@@ -24,6 +24,7 @@ import org.traccar.broadcast.BroadcastService;
 import org.traccar.schedule.ScheduleManager;
 import org.traccar.storage.DatabaseModule;
 import org.traccar.web.WebModule;
+import org.traccar.sqs.SqsPositionConsumer;
 import org.traccar.web.WebServer;
 
 import java.io.File;
@@ -120,7 +121,8 @@ public final class Main {
 
             var services = new ArrayList<LifecycleObject>();
             for (var clazz : List.of(
-                    ScheduleManager.class, ServerManager.class, WebServer.class, BroadcastService.class)) {
+                    ScheduleManager.class, ServerManager.class, WebServer.class, BroadcastService.class,
+                    SqsPositionConsumer.class)) {
                 var service = injector.getInstance(clazz);
                 if (service != null) {
                     service.start();
