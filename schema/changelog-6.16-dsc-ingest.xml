@@ -138,4 +138,15 @@
 
   </changeSet>
 
+  <!--
+    Owner of an outbox claim: a new token on every claim. Marking an entry delivered or rescheduling it
+    requires the token, so an attempt whose claim expired and was taken over can't overwrite the new owner.
+    A nullable column without default: no table rewrite.
+  -->
+  <changeSet author="dsc-trackhub" id="changelog-6.16-dsc-outbox-claim">
+    <addColumn tableName="tc_outbox">
+      <column name="claimtoken" type="VARCHAR(36)" />
+    </addColumn>
+  </changeSet>
+
 </databaseChangeLog>

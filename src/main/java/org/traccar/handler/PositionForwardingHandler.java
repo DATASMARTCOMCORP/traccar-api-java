@@ -37,6 +37,7 @@ import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Request;
 import org.traccar.session.cache.CacheManager;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -154,43 +155,57 @@ public class PositionForwardingHandler extends BasePositionHandler {
         callback.processed(false);
     }
 
+    /** Delivers an entry right after its commit, if a delivery slot is free; otherwise the outbox task will. */
     private void deliver(OutboxStore.Entry entry, PositionData positionData) {
-        try {
-            if (!outbox.claim(entry)) {
-                return;
-            }
-        } catch (StorageException e) {
-            LOGGER.warn("Position forwarding claim failed", e);
-            return;
-        }
-        positionForwarder.forward(positionData).whenComplete((result, throwable) -> {
-            try {
-                if (throwable == null) {
-                    outbox.delivered(entry);
-                } else {
-                    LOGGER.warn("Position forwarding failed, will retry", throwable);
-                    outbox.retryLater(entry);
-                }
-            } catch (StorageException e) {
-                LOGGER.warn("Position forwarding update failed", e);
-            }
-        });
+        deliver(entry, positionData, 0);
     }
 
-    /** Delivers an outbox entry left behind by a crash or a failed attempt. */
-    public void redeliver(OutboxStore.Entry entry) throws StorageException {
+    private boolean deliver(OutboxStore.Entry entry, PositionData positionData, long waitMillis) {
+        OutboxStore.Entry claimed;
+        try {
+            claimed = outbox.start(entry, waitMillis);
+        } catch (StorageException e) {
+            LOGGER.warn("Position forwarding claim failed", e);
+            return false;
+        }
+        if (claimed == null) {
+            return false;
+        }
+        CompletableFuture<Void> result;
+        try {
+            result = positionForwarder.forward(positionData);
+        } catch (RuntimeException e) {
+            result = CompletableFuture.failedFuture(e);
+        }
+        result.whenComplete((ignore, throwable) -> {
+            if (throwable != null) {
+                LOGGER.warn("Position forwarding failed, will retry", throwable);
+            }
+            outbox.finish(claimed, throwable == null);
+        });
+        return true;
+    }
+
+    /**
+     * Delivers an outbox entry left behind by a crash, a failed attempt or a full set of delivery slots,
+     * waiting up to {@code waitMillis} for a slot. Returns whether a delivery started.
+     */
+    public boolean redeliver(OutboxStore.Entry entry, long waitMillis) throws StorageException {
         Position position = storage.getObject(Position.class, new Request(
                 new Columns.All(), new Condition.Equals("id", entry.objectId())));
         if (position == null || positionForwarder == null) {
-            outbox.delivered(entry);
-            return;
+            OutboxStore.Entry claimed = outbox.start(entry, waitMillis);
+            if (claimed != null) {
+                outbox.finish(claimed, true); // nothing to deliver
+            }
+            return claimed != null;
         }
         PositionData positionData = new PositionData();
         positionData.setPosition(position);
         Device device = cacheManager.getObject(Device.class, position.getDeviceId());
         positionData.setDevice(device != null ? device : storage.getObject(Device.class, new Request(
                 new Columns.All(), new Condition.Equals("id", position.getDeviceId()))));
-        deliver(entry, positionData);
+        return deliver(entry, positionData, waitMillis);
     }
 
 }

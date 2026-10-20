@@ -208,7 +208,7 @@ class WorkersAndDeliveryTest extends IngestionTestSupport {
             var ready = new CountDownLatch(8);
             ExecutorService executor = Executors.newFixedThreadPool(8);
             try {
-                var claims = new ArrayList<Future<Boolean>>();
+                var claims = new ArrayList<Future<OutboxStore.Entry>>();
                 for (int i = 0; i < 8; i++) {
                     claims.add(executor.submit(() -> {
                         ready.countDown();
@@ -218,13 +218,67 @@ class WorkersAndDeliveryTest extends IngestionTestSupport {
                 }
                 int winners = 0;
                 for (var claim : claims) {
-                    winners += claim.get() ? 1 : 0;
+                    winners += claim.get() != null ? 1 : 0;
                 }
                 assertEquals(1, winners, "round " + round);
             } finally {
                 executor.shutdown();
             }
         }
+    }
+
+    @Test
+    void anAttemptWhoseClaimWasTakenOverCannotFinishTheEntry() throws Exception {
+        var server = start();
+        var outbox = server.get(OutboxStore.class);
+        var fixture = seed(server, "stale", Map.of());
+        var entry = outbox.add(OutboxStore.EVENT, fixture.deviceId(), 777);
+
+        var stale = outbox.claim(entry);
+        sql("UPDATE tc_outbox SET claimeduntil = now() - interval '1 second' WHERE objectid = 777");
+        var current = outbox.claim(entry);
+        assertTrue(current != null);
+        long lease = count("SELECT extract(epoch FROM claimeduntil)::bigint FROM tc_outbox WHERE objectid = 777");
+
+        // The expired attempt finishes late, either way: nothing changes for the new owner
+        assertFalse(outbox.delivered(stale));
+        assertFalse(outbox.retryLater(stale));
+        assertEquals(0, count("SELECT count(*) FROM tc_outbox WHERE objectid = 777 AND deliveredat IS NOT NULL"));
+        assertEquals(lease,
+                count("SELECT extract(epoch FROM claimeduntil)::bigint FROM tc_outbox WHERE objectid = 777"));
+        assertEquals(1, count("SELECT count(*) FROM tc_outbox WHERE objectid = 777 AND claimtoken = '"
+                + current.claimToken() + "'"));
+
+        assertTrue(outbox.delivered(current));
+        assertFalse(outbox.retryLater(current), "a delivered entry stays delivered");
+    }
+
+    @Test
+    void deliveriesInFlightAreBoundedAndTheRestDrainLater() throws Exception {
+        holdAllWebhooks = new CountDownLatch(1);
+        var server = start(Map.of("outbox.concurrency", "2"));
+        for (int d = 0; d < 3; d++) {
+            var fixture = seed(server, "bounded-" + d, Map.of());
+            assertEquals(200, server.batch(batch(fixture, items(0, 21))).statusCode());
+        }
+        long events = count("SELECT count(*) FROM tc_outbox WHERE kind = 'event'");
+        assertTrue(events > 4);
+        await(() -> webhooksInFlight.get() == 2, "two deliveries held by the receiver");
+
+        // The rest stays unclaimed: nothing is claimed that can't be sent right away
+        assertEquals(2, count("SELECT count(*) FROM tc_outbox WHERE kind = 'event' AND claimeduntil > now()"));
+        var drain = CompletableFuture.runAsync(() -> server.get(TaskOutbox.class).run());
+        holdAllWebhooks.countDown();
+        drain.get(30, TimeUnit.SECONDS);
+        while (count("SELECT count(*) FROM tc_outbox WHERE deliveredat IS NULL") > 0) {
+            server.get(TaskOutbox.class).run();
+            await(() -> webhooksInFlight.get() == 0, "deliveries in flight to finish");
+        }
+
+        assertEquals(2, maxWebhooksInFlight.get());
+        awaitForwarded((int) events);
+        assertEquals(events, forwardedPerEvent().size());
+        assertTrue(forwardedPerEvent().values().stream().allMatch(n -> n == 1));
     }
 
     @Test
@@ -240,9 +294,10 @@ class WorkersAndDeliveryTest extends IngestionTestSupport {
         for (int attempt = 0; attempt < 9; attempt++) {
             var entry = outbox.pending(100).stream().filter(e -> e.objectId() == 123456).findFirst().orElseThrow();
             assertEquals(attempt, entry.attempts());
-            assertTrue(outbox.claim(entry));
-            assertFalse(outbox.claim(entry), "a claimed entry can't be claimed again");
-            outbox.retryLater(entry);
+            var claimed = outbox.claim(entry);
+            assertTrue(claimed != null);
+            assertTrue(outbox.claim(entry) == null, "a claimed entry can't be claimed again");
+            assertTrue(outbox.retryLater(claimed));
             delays.add(claimDelay.apply(null));
             assertTrue(outbox.pending(100).stream().noneMatch(e -> e.objectId() == 123456), "not before its time");
             sql("UPDATE tc_outbox SET claimeduntil = now() - interval '1 second' WHERE objectid = 123456");

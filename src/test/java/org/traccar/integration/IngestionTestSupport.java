@@ -63,6 +63,11 @@ abstract class IngestionTestSupport {
     volatile int webhookStatus = 200;
     /** When set, the first webhook call waits for this latch before it answers. */
     volatile CountDownLatch holdFirstWebhook;
+    /** When set, every webhook call waits for this latch before it answers. */
+    volatile CountDownLatch holdAllWebhooks;
+    final java.util.concurrent.atomic.AtomicInteger webhooksInFlight = new java.util.concurrent.atomic.AtomicInteger();
+    final java.util.concurrent.atomic.AtomicInteger maxWebhooksInFlight =
+            new java.util.concurrent.atomic.AtomicInteger();
     private final java.util.concurrent.atomic.AtomicBoolean firstWebhookSeen =
             new java.util.concurrent.atomic.AtomicBoolean();
     private final Semaphore forwardedPermits = new Semaphore(0);
@@ -114,13 +119,20 @@ abstract class IngestionTestSupport {
         webhook.createContext("/events", exchange -> {
             int status = webhookStatus;
             JsonNode body = JSON.readTree(exchange.getRequestBody());
+            maxWebhooksInFlight.accumulateAndGet(webhooksInFlight.incrementAndGet(), Math::max);
             var hold = holdFirstWebhook;
-            if (hold != null && firstWebhookSeen.compareAndSet(false, true)) {
-                try {
+            var holdAll = holdAllWebhooks;
+            try {
+                if (hold != null && firstWebhookSeen.compareAndSet(false, true)) {
                     hold.await();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
                 }
+                if (holdAll != null) {
+                    holdAll.await();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                webhooksInFlight.decrementAndGet();
             }
             exchange.sendResponseHeaders(status, -1);
             exchange.close();

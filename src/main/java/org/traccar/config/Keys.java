@@ -754,6 +754,15 @@ public final class Keys {
             60000L);
 
     /**
+     * Outbox deliveries in flight at once per server. A delivery right after commit that finds no free slot is
+     * left for the outbox task, which waits for slots and drains the backlog.
+     */
+    public static final ConfigKey<Integer> OUTBOX_CONCURRENCY = new IntegerConfigKey(
+            "outbox.concurrency",
+            List.of(KeyType.CONFIG),
+            32);
+
+    /**
      * Record a receipt for single OsmAnd position requests too (`reportId` parameter, or the fix time and
      * coordinates), so a report sent live and again in an offline batch is stored once.
      */

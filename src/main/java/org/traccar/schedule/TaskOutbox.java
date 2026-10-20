@@ -23,6 +23,7 @@ public class TaskOutbox implements ScheduleTask {
 
     private static final long PERIOD_SECONDS = 30;
     private static final int BATCH = 500;
+    private static final long SLOT_WAIT_MILLIS = 1000;
 
     private final OutboxStore outbox;
     private final NotificationManager notificationManager;
@@ -52,10 +53,12 @@ public class TaskOutbox implements ScheduleTask {
         try {
             for (var entry : outbox.pending(BATCH)) {
                 try {
-                    if (entry.kind().equals(OutboxStore.POSITION)) {
-                        positionForwardingHandler.redeliver(entry);
-                    } else {
-                        notificationManager.redeliver(entry);
+                    // Each entry is claimed only once a delivery slot is free, right before it is sent
+                    boolean started = entry.kind().equals(OutboxStore.POSITION)
+                            ? positionForwardingHandler.redeliver(entry, SLOT_WAIT_MILLIS)
+                            : notificationManager.redeliver(entry, SLOT_WAIT_MILLIS);
+                    if (!started && outbox.idle() == 0) {
+                        break; // all slots busy: the rest waits for the next run
                     }
                 } catch (StorageException | RuntimeException e) {
                     LOGGER.warn("Outbox delivery failed", e);

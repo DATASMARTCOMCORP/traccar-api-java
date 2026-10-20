@@ -16,6 +16,9 @@ import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Deliveries that leave the server (event webhook, notifications, position forwarding), written in the same
@@ -31,17 +34,27 @@ public class OutboxStore {
     public static final String NOTIFY = "notify";
     public static final String POSITION = "position";
 
-    public record Entry(long id, String kind, long deviceId, long objectId, int attempts) { }
+    /**
+     * An outbox row. {@code claimToken} is set on an entry returned by {@link #claim}: it identifies that claim
+     * and is required to finish it.
+     */
+    public record Entry(long id, String kind, long deviceId, long objectId, int attempts, String claimToken) {
+        Entry claimedBy(String token) {
+            return new Entry(id, kind, deviceId, objectId, attempts, token);
+        }
+    }
 
     private static final Logger LOGGER = LoggerFactory.getLogger(OutboxStore.class);
 
     private final Storage storage;
     private final long lease;
+    private final Semaphore slots;
 
     @Inject
     public OutboxStore(Config config, Storage storage) {
         this.storage = storage;
         lease = config.getLong(Keys.OUTBOX_LEASE);
+        slots = new Semaphore(config.getInteger(Keys.OUTBOX_CONCURRENCY));
         long timeouts = config.getInteger(Keys.CLIENT_CONNECT_TIMEOUT) + config.getInteger(Keys.CLIENT_READ_TIMEOUT);
         if (lease <= timeouts) {
             LOGGER.warn("outbox.lease ({} ms) does not exceed the HTTP client timeouts ({} ms):"
@@ -66,24 +79,76 @@ public class OutboxStore {
                 statement.executeUpdate();
                 try (ResultSet keys = statement.getGeneratedKeys()) {
                     keys.next();
-                    return new Entry(keys.getLong(1), kind, deviceId, objectId, 0);
+                    return new Entry(keys.getLong(1), kind, deviceId, objectId, 0, null);
                 }
             }
         });
     }
 
-    /** Takes a delivery for the lease time; false when another attempt holds it or it is done. */
-    public boolean claim(Entry entry) throws StorageException {
-        return storage.execute(connection -> {
+    /**
+     * Takes a delivery for the lease time, under a new claim token. Returns the claimed entry, or null when
+     * another attempt holds it or it is done. Claim an entry only right before delivering it.
+     */
+    public Entry claim(Entry entry) throws StorageException {
+        String token = UUID.randomUUID().toString();
+        boolean claimed = storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
-                    "UPDATE tc_outbox SET claimeduntil = ?, attempts = attempts + 1"
+                    "UPDATE tc_outbox SET claimeduntil = ?, attempts = attempts + 1, claimtoken = ?"
                             + " WHERE id = ? AND deliveredat IS NULL AND (claimeduntil IS NULL OR claimeduntil < ?)")) {
                 statement.setTimestamp(1, now(lease));
-                statement.setLong(2, entry.id());
-                statement.setTimestamp(3, now(0));
+                statement.setString(2, token);
+                statement.setLong(3, entry.id());
+                statement.setTimestamp(4, now(0));
                 return statement.executeUpdate() == 1;
             }
         });
+        return claimed ? entry.claimedBy(token) : null;
+    }
+
+    /**
+     * Starts a delivery: takes one of the {@code outbox.concurrency} delivery slots, waiting up to
+     * {@code waitMillis}, then claims the entry. Returns the claimed entry, or null when no slot freed up or
+     * the entry is not claimable; then nothing is held. A started delivery must end with {@link #finish}.
+     */
+    public Entry start(Entry entry, long waitMillis) throws StorageException {
+        try {
+            if (!slots.tryAcquire(waitMillis, TimeUnit.MILLISECONDS)) {
+                return null;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+        try {
+            Entry claimed = claim(entry);
+            if (claimed == null) {
+                slots.release();
+            }
+            return claimed;
+        } catch (StorageException | RuntimeException e) {
+            slots.release();
+            throw e;
+        }
+    }
+
+    /** Delivery slots free right now. */
+    public int idle() {
+        return slots.availablePermits();
+    }
+
+    /** Ends a started delivery: records the result under its claim and frees the slot. */
+    public void finish(Entry entry, boolean success) {
+        try {
+            boolean owned = success ? delivered(entry) : retryLater(entry);
+            if (!owned) {
+                LOGGER.warn("Outbox entry {} was taken over by another attempt; its result is not recorded",
+                        entry.id());
+            }
+        } catch (StorageException e) {
+            LOGGER.warn("Outbox entry {} update failed", entry.id(), e);
+        } finally {
+            slots.release();
+        }
     }
 
     /** Deliveries nobody holds, oldest first. */
@@ -99,7 +164,7 @@ public class OutboxStore {
                 try (ResultSet resultSet = statement.executeQuery()) {
                     while (resultSet.next()) {
                         result.add(new Entry(resultSet.getLong(1), resultSet.getString(2), resultSet.getLong(3),
-                                resultSet.getLong(4), resultSet.getInt(5)));
+                                resultSet.getLong(4), resultSet.getInt(5), null));
                     }
                 }
                 return result;
@@ -107,26 +172,37 @@ public class OutboxStore {
         });
     }
 
-    public void delivered(Entry entry) throws StorageException {
-        storage.execute(connection -> {
+    /**
+     * Marks a claimed delivery done. False when the claim was lost: it expired and another attempt took the
+     * entry, which now decides its fate.
+     */
+    public boolean delivered(Entry entry) throws StorageException {
+        return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
-                    "UPDATE tc_outbox SET deliveredat = ? WHERE id = ?")) {
+                    "UPDATE tc_outbox SET deliveredat = ?, claimeduntil = NULL"
+                            + " WHERE id = ? AND claimtoken = ? AND deliveredat IS NULL")) {
                 statement.setTimestamp(1, now(0));
                 statement.setLong(2, entry.id());
-                return statement.executeUpdate();
+                statement.setString(3, entry.claimToken());
+                return statement.executeUpdate() == 1;
             }
         });
     }
 
-    /** Keeps a failed delivery claimed until it may be attempted again: 5 s doubling up to 10 min. */
-    public void retryLater(Entry entry) throws StorageException {
+    /**
+     * Keeps a failed claimed delivery until it may be attempted again: 5 s doubling up to 10 min. False when
+     * the claim was lost.
+     */
+    public boolean retryLater(Entry entry) throws StorageException {
         long delay = Math.min(600_000L, 5_000L << Math.min(entry.attempts(), 7));
-        storage.execute(connection -> {
+        return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
-                    "UPDATE tc_outbox SET claimeduntil = ? WHERE id = ? AND deliveredat IS NULL")) {
+                    "UPDATE tc_outbox SET claimeduntil = ?"
+                            + " WHERE id = ? AND claimtoken = ? AND deliveredat IS NULL")) {
                 statement.setTimestamp(1, now(delay));
                 statement.setLong(2, entry.id());
-                return statement.executeUpdate();
+                statement.setString(3, entry.claimToken());
+                return statement.executeUpdate() == 1;
             }
         });
     }

@@ -114,20 +114,27 @@ public class NotificationManager {
         sendNotifications(event, position);
     }
 
+    /** Delivers an entry right after its commit, if a delivery slot is free; otherwise the outbox task will. */
     private void deliver(OutboxStore.Entry entry, Event event, Position position) {
+        deliver(entry, event, position, 0);
+    }
+
+    private boolean deliver(OutboxStore.Entry entry, Event event, Position position, long waitMillis) {
+        OutboxStore.Entry claimed;
         try {
-            if (!outbox.claim(entry)) {
-                return;
-            }
+            claimed = outbox.start(entry, waitMillis);
         } catch (StorageException error) {
             LOGGER.warn("Event delivery claim error", error);
-            return;
+            return false;
+        }
+        if (claimed == null) {
+            return false;
         }
         var key = new Object();
         CompletableFuture<Void> result;
         try {
             cacheManager.addDevice(event.getDeviceId(), key);
-            result = entry.kind().equals(OutboxStore.EVENT)
+            result = claimed.kind().equals(OutboxStore.EVENT)
                     ? forwardEvent(event, position)
                     : sendNotifications(event, position);
         } catch (Exception error) {
@@ -136,30 +143,31 @@ public class NotificationManager {
             cacheManager.removeDevice(event.getDeviceId(), key);
         }
         result.whenComplete((ignore, error) -> {
-            try {
-                if (error == null) {
-                    outbox.delivered(entry);
-                } else {
-                    LOGGER.warn("Event delivery failed, will retry", error);
-                    outbox.retryLater(entry);
-                }
-            } catch (StorageException storageError) {
-                LOGGER.warn("Event delivery update error", storageError);
+            if (error != null) {
+                LOGGER.warn("Event delivery failed, will retry", error);
             }
+            outbox.finish(claimed, error == null);
         });
+        return true;
     }
 
-    /** Delivers an outbox entry left behind by a crash or a failed attempt. */
-    public void redeliver(OutboxStore.Entry entry) throws StorageException {
+    /**
+     * Delivers an outbox entry left behind by a crash, a failed attempt or a full set of delivery slots,
+     * waiting up to {@code waitMillis} for a slot. Returns whether a delivery started.
+     */
+    public boolean redeliver(OutboxStore.Entry entry, long waitMillis) throws StorageException {
         Event event = storage.getObject(Event.class, new Request(
                 new Columns.All(), new Condition.Equals("id", entry.objectId())));
         if (event == null) {
-            outbox.delivered(entry);
-            return;
+            OutboxStore.Entry claimed = outbox.start(entry, waitMillis);
+            if (claimed != null) {
+                outbox.finish(claimed, true); // nothing left to deliver
+            }
+            return claimed != null;
         }
         Position position = event.getPositionId() > 0 ? storage.getObject(Position.class, new Request(
                 new Columns.All(), new Condition.Equals("id", event.getPositionId()))) : null;
-        deliver(entry, event, position);
+        return deliver(entry, event, position, waitMillis);
     }
 
     private CompletableFuture<Void> sendNotifications(Event event, Position position) {
