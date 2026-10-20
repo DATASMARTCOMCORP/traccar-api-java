@@ -188,12 +188,27 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
         }
     }
 
+    /**
+     * Processes a position that did not arrive on a connection, such as one taken from a queue. It skips the
+     * buffering, which only reorders positions arriving close together on connections.
+     */
+    public void process(Position position) {
+        try {
+            cacheManager.addDevice(position.getDeviceId(), position);
+        } catch (Exception e) {
+            LOGGER.warn("Failed to load device {}", position.getDeviceId(), e);
+            fail(position, "cache");
+            return;
+        }
+        onReleased(null, position);
+    }
+
     @Override
     public void onReleased(ChannelHandlerContext context, Position position) {
         var worker = workers.of(position.getDeviceId());
-        if (!worker.admit(context.channel())) {
+        if (!worker.admit(context != null ? context.channel() : null)) {
             fail(position, "busy");
-            context.writeAndFlush(new AcknowledgementHandler.EventHandled(position));
+            acknowledge(context, position);
             cacheManager.removeDevice(position.getDeviceId(), position);
             return;
         }
@@ -220,7 +235,7 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
         } catch (StorageException e) {
             LOGGER.warn("Failed to lock device {}", position.getDeviceId(), e);
             fail(position, "lock");
-            ctx.writeAndFlush(new AcknowledgementHandler.EventHandled(position));
+            acknowledge(ctx, position);
             processNextPosition(position.getDeviceId());
             cacheManager.removeDevice(position.getDeviceId(), position);
             workers.of(position.getDeviceId()).release();
@@ -290,10 +305,17 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
         if (committed && !filtered) {
             positionLogger.log(ctx, position);
         }
-        ctx.writeAndFlush(new AcknowledgementHandler.EventHandled(position));
+        acknowledge(ctx, position);
         processNextPosition(position.getDeviceId());
         cacheManager.removeDevice(position.getDeviceId(), position);
         workers.of(position.getDeviceId()).release();
+    }
+
+    /** Lets the protocol answer the device; positions without a connection have no one to answer. */
+    private static void acknowledge(ChannelHandlerContext ctx, Position position) {
+        if (ctx != null) {
+            ctx.writeAndFlush(new AcknowledgementHandler.EventHandled(position));
+        }
     }
 
     private static void fail(Position position, String reason) {

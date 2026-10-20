@@ -46,7 +46,7 @@ public class PositionLogger {
         Device device = cacheManager.getObject(Device.class, position.getDeviceId());
 
         StringBuilder builder = new StringBuilder();
-        builder.append("[").append(NetworkUtil.session(context.channel())).append("] ");
+        builder.append("[").append(context != null ? NetworkUtil.session(context.channel()) : "queue").append("] ");
         builder.append("id: ").append(device.getUniqueId());
         for (String attribute : logAttributes) {
             switch (attribute) {
