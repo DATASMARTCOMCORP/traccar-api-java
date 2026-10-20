@@ -92,6 +92,10 @@ final class TraccarInstance implements AutoCloseable {
         }
     }
 
+    int port() {
+        return port;
+    }
+
     <T> T get(Class<T> type) {
         return injector.getInstance(type);
     }

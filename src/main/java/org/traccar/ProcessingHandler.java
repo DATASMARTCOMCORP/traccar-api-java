@@ -173,6 +173,11 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
         }
     }
 
+    /** Positions waiting for or in processing on this server, a measure of its backlog. */
+    public int getPendingPositions() {
+        return workers.pending();
+    }
+
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         if (msg instanceof Position position) {

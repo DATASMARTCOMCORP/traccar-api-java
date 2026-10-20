@@ -108,3 +108,17 @@ os envios individuais neste listener; os demais formatos OsmAnd são preservados
   posições atrasadas.
 - Notificações seguem `notificator.timeThreshold` (15 min): eventos mais antigos são gravados e
   repassados (`event.forward`) mas não notificados.
+- Intervalos com dados atrasados ficam em `tc_late_positions` até existir uma reconstrução (ainda não
+  existe); `docs/late-data-incomplete.sql` lista o que pode estar incompleto.
+
+## Processamento e entregas
+
+- Cada posição é processada numa transação, com o aparelho travado (lock consultivo do PostgreSQL,
+  `processing.lockTimeout`), em `processing.workers` threads (padrão 16; o mesmo aparelho sempre na mesma).
+  Acima de `processing.queueLimit` posições à espera por thread a leitura das conexões pausa; acima do
+  dobro, itens são recusados (`failed`, motivo `busy`) e o remetente reenvia.
+- Webhook de eventos, notificações e `forward.url` saem de `tc_outbox` depois do commit, pelo menos uma vez,
+  com no máximo `outbox.concurrency` (padrão 32) entregas em curso por servidor. Cada tentativa reserva a
+  entrada por `outbox.lease` com um token; uma tentativa cuja reserva venceu e foi retomada não grava mais
+  nada. Quem recebe deve deduplicar pelo id do evento ou da posição.
+- Validação de migrações, carga e recuperação: `docs/ingestion-validation.md`.

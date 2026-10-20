@@ -158,6 +158,34 @@ test {
     classpath = files(sourceSets.main.output.classesDirs) + classpath
 }
 
+// Pending Liquibase changesets on a disposable, production-shaped PostgreSQL (see docs/ingestion-validation.md)
+tasks.register('migrationCheck', JavaExec) {
+    group = 'verification'
+    classpath = files(sourceSets.main.output.classesDirs) + sourceSets.test.runtimeClasspath
+    mainClass = 'org.traccar.integration.MigrationCheck'
+    jvmArgs '-Xmx2g'
+    ['pgBin', 'positions', 'actions'].each { name ->
+        if (project.hasProperty(name)) {
+            systemProperty name, project.property(name)
+        }
+    }
+}
+
+// Load and recovery harness on a disposable PostgreSQL (see docs/ingestion-validation.md)
+tasks.register('loadTest', JavaExec) {
+    group = 'verification'
+    classpath = files(sourceSets.main.output.classesDirs) + sourceSets.test.runtimeClasspath
+    mainClass = 'org.traccar.integration.LoadTest'
+    jvmArgs '-Xmx6g'
+    ['pgBin', 'devices', 'interval', 'duration', 'instances', 'geofences', 'linksPerDevice', 'crossingSeconds',
+     'offlineShare', 'offlineEvery', 'killAt', 'restartAt', 'webhookDownFrom', 'webhookDownTo', 'maxInFlight',
+     'workers', 'pool'].each { name ->
+        if (project.hasProperty(name)) {
+            systemProperty name, project.property(name)
+        }
+    }
+}
+
 tasks.register('copyDependencies', Copy) {
     into "$projectDir/target/lib"
     from configurations.runtimeClasspath

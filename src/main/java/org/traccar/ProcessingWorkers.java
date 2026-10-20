@@ -101,6 +101,15 @@ final class ProcessingWorkers {
         }
     }
 
+    /** Positions admitted and not finished yet, over all workers. */
+    int pending() {
+        int total = 0;
+        for (Worker worker : workers) {
+            total += worker.pending();
+        }
+        return total;
+    }
+
     Worker of(long deviceId) {
         return workers[Math.floorMod(Long.hashCode(deviceId), workers.length)];
     }
