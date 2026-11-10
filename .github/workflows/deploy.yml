@@ -2,9 +2,15 @@ name: Deploy Production (SIR)
 
 on:
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Ensaio: envia e confere o pacote na instância, sem parar nem trocar o serviço"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: sir-production-deploy
@@ -12,14 +18,13 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/feat/idempotent-position-processing'
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/feat/idempotent-position-processing' || inputs.dry_run
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 30
     env:
       DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
       DEPLOY_USER: ${{ vars.DEPLOY_USER }}
-      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
       DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
       DEPLOY_SERVICE_NAME: ${{ vars.DEPLOY_SERVICE_NAME }}
       DEPLOY_CONFIG_FILE: ${{ vars.DEPLOY_CONFIG_FILE }}
@@ -43,67 +48,73 @@ jobs:
           cd release
           find . -type f -print0 | sort -z | xargs -0 sha256sum > ../SHA256SUMS
           mv ../SHA256SUMS .
-      - name: Configure SSH and validate settings
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
-          SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      - name: Validate settings
         run: |
           set -euo pipefail
-          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_PORT DEPLOY_PATH DEPLOY_SERVICE_NAME DEPLOY_CONFIG_FILE SSH_PRIVATE_KEY SSH_KNOWN_HOSTS; do
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_PATH DEPLOY_SERVICE_NAME DEPLOY_CONFIG_FILE; do
             test -n "${!name}" || { echo "::error::Missing $name"; exit 1; }
           done
           [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9.-]+$ ]]
           [[ "$DEPLOY_USER" =~ ^[a-zA-Z0-9_-]+$ ]]
-          [[ "$DEPLOY_PORT" =~ ^[0-9]+$ ]]
           [[ "$DEPLOY_PATH" =~ ^/[a-zA-Z0-9/_-]+$ && "$DEPLOY_PATH" != / ]]
           [[ "$DEPLOY_SERVICE_NAME" =~ ^[a-zA-Z0-9_-]+$ ]]
           [[ "$DEPLOY_CONFIG_FILE" =~ ^[a-zA-Z0-9/_.-]+$ && "$DEPLOY_CONFIG_FILE" != /* && "$DEPLOY_CONFIG_FILE" != *..* ]]
-          umask 077
-          mkdir -p ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/deploy_key"
-          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          cat > ~/.ssh/config <<SSH
-          Host sir-production
-            HostName $DEPLOY_HOST
-            User $DEPLOY_USER
-            Port $DEPLOY_PORT
-            IdentityFile $RUNNER_TEMP/deploy_key
-            IdentitiesOnly yes
-            BatchMode yes
-            StrictHostKeyChecking yes
-            ConnectTimeout 20
-            ServerAliveInterval 15
-            ServerAliveCountMax 4
-          SSH
           echo "RELEASE_DIR=/tmp/sir-tracker-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+      - name: 🔑 AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+      # No SSH: files go through S3 and commands run by SSM Run Command as DEPLOY_USER.
       - name: Check remote deployment tools
-        run: |
-          set -euo pipefail
-          ssh sir-production 'bash -s' <<'REMOTE'
-          set -euo pipefail
-          for tool in rsync curl python3 flock sha256sum; do
-            command -v "$tool" >/dev/null || {
-              echo "Missing server prerequisite: $tool. Install it before retrying deployment." >&2
-              exit 1
-            }
-          done
-          sudo -n true
-          REMOTE
-      - name: Stage and verify release
-        run: |
-          set -euo pipefail
-          ssh sir-production "mkdir -p '$RELEASE_DIR'"
-          rsync -rc --copy-dest="$DEPLOY_PATH/lib" -e ssh release/lib/ "sir-production:$RELEASE_DIR/lib/"
-          rsync -rc --exclude lib/ -e ssh release/ "sir-production:$RELEASE_DIR/"
-          ssh sir-production "cd '$RELEASE_DIR' && sha256sum -c SHA256SUMS --quiet"
+        uses: DATASMARTCOMCORP/ci-actions/actions/aws/ssm-deploy@main
+        with:
+          host: ${{ env.DEPLOY_HOST }}
+          username: ${{ env.DEPLOY_USER }}
+          script_stop: true
+          script: |
+            for tool in curl python3 flock sha256sum; do
+              command -v "$tool" >/dev/null || {
+                echo "Missing server prerequisite: $tool. Install it before retrying deployment." >&2
+                exit 1
+              }
+            done
+            sudo -n true
+      - name: Stage release
+        uses: DATASMARTCOMCORP/ci-actions/actions/aws/ssm-deploy@main
+        with:
+          host: ${{ env.DEPLOY_HOST }}
+          username: ${{ env.DEPLOY_USER }}
+          source: release,scripts/deploy-production.sh
+          target: ${{ env.RELEASE_DIR }}
+      - name: Verify release
+        uses: DATASMARTCOMCORP/ci-actions/actions/aws/ssm-deploy@main
+        with:
+          host: ${{ env.DEPLOY_HOST }}
+          username: ${{ env.DEPLOY_USER }}
+          envs: RELEASE_DIR
+          script_stop: true
+          script: |
+            cd "$RELEASE_DIR/release"
+            sha256sum -c SHA256SUMS --quiet
+            echo "Release verified at $RELEASE_DIR"
       - name: Deploy with rollback
-        run: |
-          set -euo pipefail
-          ssh sir-production "sudo -n bash -s -- '$RELEASE_DIR' '$DEPLOY_PATH' '$DEPLOY_SERVICE_NAME' '$DEPLOY_CONFIG_FILE' '$GITHUB_SHA'" < scripts/deploy-production.sh
-      - name: Remove staging files and runner credentials
-        if: always()
-        run: |
-          if [[ -n "${RELEASE_DIR:-}" && -f "$RUNNER_TEMP/deploy_key" ]]; then
-            ssh sir-production "rm -rf -- '$RELEASE_DIR'" || true
-          fi
-          rm -f "$RUNNER_TEMP/deploy_key" ~/.ssh/config ~/.ssh/known_hosts
+        if: ${{ !inputs.dry_run }}
+        uses: DATASMARTCOMCORP/ci-actions/actions/aws/ssm-deploy@main
+        with:
+          host: ${{ env.DEPLOY_HOST }}
+          username: ${{ env.DEPLOY_USER }}
+          envs: RELEASE_DIR,DEPLOY_PATH,DEPLOY_SERVICE_NAME,DEPLOY_CONFIG_FILE,GITHUB_SHA
+          script_stop: true
+          script: |
+            sudo -n bash "$RELEASE_DIR/scripts/deploy-production.sh" "$RELEASE_DIR/release" "$DEPLOY_PATH" "$DEPLOY_SERVICE_NAME" "$DEPLOY_CONFIG_FILE" "$GITHUB_SHA"
+      - name: Remove staging files
+        if: always() && env.RELEASE_DIR != ''
+        continue-on-error: true
+        uses: DATASMARTCOMCORP/ci-actions/actions/aws/ssm-deploy@main
+        with:
+          host: ${{ env.DEPLOY_HOST }}
+          username: ${{ env.DEPLOY_USER }}
+          envs: RELEASE_DIR
+          script: |
+            rm -rf -- "$RELEASE_DIR"
