@@ -16,11 +16,15 @@
 package org.traccar;
 
 import com.google.inject.Injector;
+import io.netty.channel.Channel;
+import io.netty.channel.ServerChannel;
+import io.opentelemetry.api.metrics.ObservableLongMeasurement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
 import org.traccar.helper.ClassScanner;
+import org.traccar.metrics.Metrics;
 
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
@@ -43,10 +47,12 @@ public class ServerManager implements LifecycleObject {
 
     private final List<TrackerConnector> connectorList = new LinkedList<>();
     private final Map<String, BaseProtocol> protocolList = new ConcurrentHashMap<>();
+    private final Metrics metrics;
 
     @Inject
     public ServerManager(
-            Injector injector, Config config) throws IOException, URISyntaxException, ReflectiveOperationException {
+            Injector injector, Config config, Metrics metrics)
+            throws IOException, URISyntaxException, ReflectiveOperationException {
         Set<String> enabledProtocols = null;
         if (config.hasKey(Keys.PROTOCOLS_ENABLE)) {
             enabledProtocols = new HashSet<>(Arrays.asList(config.getString(Keys.PROTOCOLS_ENABLE).split("[, ]")));
@@ -60,6 +66,26 @@ public class ServerManager implements LifecycleObject {
                     protocolList.put(protocol.getName(), protocol);
                 }
             }
+        }
+        this.metrics = metrics;
+        metrics.gaugeWithAttributes("traccar.connections", "{connection}",
+                "Open device connections on this server, by protocol", this::measureConnections);
+    }
+
+    /** Open device connections per protocol, over its TCP connectors (UDP has no connections to count). */
+    private void measureConnections(ObservableLongMeasurement measurement) {
+        for (BaseProtocol protocol : protocolList.values()) {
+            long count = 0;
+            for (TrackerConnector connector : protocol.getConnectorList()) {
+                if (!connector.isDatagram()) {
+                    for (Channel channel : connector.getChannelGroup()) {
+                        if (!(channel instanceof ServerChannel)) {
+                            count += 1;
+                        }
+                    }
+                }
+            }
+            measurement.record(count, metrics.protocol(protocol.getName()));
         }
     }
 

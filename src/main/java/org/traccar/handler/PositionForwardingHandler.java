@@ -27,6 +27,7 @@ import org.traccar.config.Keys;
 import org.traccar.database.OutboxStore;
 import org.traccar.forward.PositionData;
 import org.traccar.forward.PositionForwarder;
+import org.traccar.metrics.Metrics;
 import org.traccar.model.Device;
 import org.traccar.model.Position;
 import org.traccar.storage.Storage;
@@ -59,14 +60,16 @@ public class PositionForwardingHandler extends BasePositionHandler {
 
     private final Storage storage;
     private final OutboxStore outbox;
+    private final Metrics metrics;
 
     @Inject
     public PositionForwardingHandler(
             Config config, CacheManager cacheManager, Timer timer, @Nullable PositionForwarder positionForwarder,
-            Storage storage, OutboxStore outbox) {
+            Storage storage, OutboxStore outbox, Metrics metrics) {
 
         this.storage = storage;
         this.outbox = outbox;
+        this.metrics = metrics;
         this.cacheManager = cacheManager;
         this.timer = timer;
         this.positionForwarder = positionForwarder;
@@ -91,7 +94,9 @@ public class PositionForwardingHandler extends BasePositionHandler {
         }
 
         private void send() {
+            long start = System.nanoTime();
             positionForwarder.forward(positionData).whenComplete((result, throwable) -> {
+                metrics.forwarded("position", start, throwable == null);
                 if (throwable == null) {
                     deliveryPending.decrementAndGet();
                 } else {
@@ -172,12 +177,14 @@ public class PositionForwardingHandler extends BasePositionHandler {
             return false;
         }
         CompletableFuture<Void> result;
+        long start = System.nanoTime();
         try {
             result = positionForwarder.forward(positionData);
         } catch (RuntimeException e) {
             result = CompletableFuture.failedFuture(e);
         }
         result.whenComplete((ignore, throwable) -> {
+            metrics.forwarded("position", start, throwable == null);
             if (throwable != null) {
                 LOGGER.warn("Position forwarding failed, will retry", throwable);
             }

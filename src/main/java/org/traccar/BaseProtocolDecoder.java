@@ -25,6 +25,7 @@ import org.traccar.database.MediaManager;
 import org.traccar.database.StatisticsManager;
 import org.traccar.helper.UnitsConverter;
 import org.traccar.helper.model.AttributeUtil;
+import org.traccar.metrics.Metrics;
 import org.traccar.model.Command;
 import org.traccar.model.Device;
 import org.traccar.model.Position;
@@ -52,6 +53,7 @@ public abstract class BaseProtocolDecoder extends ExtendedObjectDecoder {
     private StatisticsManager statisticsManager;
     private MediaManager mediaManager;
     private CommandsManager commandsManager;
+    private Metrics metrics;
 
     private String modelOverride;
 
@@ -88,6 +90,27 @@ public abstract class BaseProtocolDecoder extends ExtendedObjectDecoder {
     @Inject
     public void setCommandsManager(CommandsManager commandsManager) {
         this.commandsManager = commandsManager;
+    }
+
+    @Inject
+    public void setMetrics(Metrics metrics) {
+        this.metrics = metrics;
+    }
+
+    @Override
+    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+        if (metrics == null) {
+            super.channelRead(ctx, msg);
+            return;
+        }
+        metrics.messageReceived(getProtocolName());
+        try {
+            super.channelRead(ctx, msg);
+        } catch (Exception e) {
+            // Handlers further down the pipeline report their own exceptions, so this one is the decoder's
+            metrics.decodingError(getProtocolName());
+            throw e;
+        }
     }
 
     public CommandsManager getCommandsManager() {
@@ -201,6 +224,11 @@ public abstract class BaseProtocolDecoder extends ExtendedObjectDecoder {
             statisticsManager.registerMessageReceived();
         }
         Set<Long> deviceIds = new HashSet<>();
+        if (metrics != null) {
+            int count = decodedMessage instanceof Position ? 1
+                    : decodedMessage instanceof Collection<?> collection ? collection.size() : 0;
+            metrics.positionsDecoded(getProtocolName(), count);
+        }
         switch (decodedMessage) {
             case Position position -> deviceIds.add(position.getDeviceId());
             case Collection<?> positions -> {

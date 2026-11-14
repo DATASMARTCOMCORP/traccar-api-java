@@ -25,6 +25,7 @@ import org.traccar.config.Config;
 import org.traccar.config.Keys;
 import org.traccar.database.DeviceLookupService;
 import org.traccar.database.NotificationManager;
+import org.traccar.metrics.Metrics;
 import org.traccar.model.BaseModel;
 import org.traccar.model.Device;
 import org.traccar.model.Event;
@@ -85,7 +86,7 @@ public class ConnectionManager implements BroadcastInterface {
     public ConnectionManager(
             Config config, CacheManager cacheManager, Storage storage,
             NotificationManager notificationManager, BroadcastService broadcastService,
-            DeviceLookupService deviceLookupService) {
+            DeviceLookupService deviceLookupService, Metrics metrics) {
         this.config = config;
         this.cacheManager = cacheManager;
         this.storage = storage;
@@ -96,6 +97,8 @@ public class ConnectionManager implements BroadcastInterface {
         showUnknownDevices = config.getBoolean(Keys.WEB_SHOW_UNKNOWN_DEVICES);
         statusEventsEnabled = config.getBoolean(Keys.EVENT_STATUS_ENABLE);
         broadcastService.registerListener(this);
+        metrics.gauge("traccar.sessions", "{session}",
+                "Devices with an identified session on this server", sessionsByDeviceId::size);
     }
 
     public void sweepIdleSessions() {

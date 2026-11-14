@@ -2402,4 +2402,37 @@ public final class Keys {
             "broadcast.secondary",
             List.of(KeyType.CONFIG));
 
+    /**
+     * Exposes operational metrics (connections, messages, processing, database, forwarding, JVM) in the
+     * Prometheus text format over HTTP, for a local agent to scrape. Off by default.
+     */
+    public static final ConfigKey<Boolean> METRICS_ENABLE = new BooleanConfigKey(
+            "metrics.enable",
+            List.of(KeyType.CONFIG),
+            false);
+
+    /**
+     * Address the metrics endpoint listens on. The default keeps it reachable from the host only; do not expose
+     * it publicly.
+     */
+    public static final ConfigKey<String> METRICS_ADDRESS = new StringConfigKey(
+            "metrics.address",
+            List.of(KeyType.CONFIG),
+            "127.0.0.1");
+
+    /**
+     * Port of the metrics endpoint. Metrics are served at {@code /metrics}.
+     */
+    public static final ConfigKey<Integer> METRICS_PORT = new IntegerConfigKey(
+            "metrics.port",
+            List.of(KeyType.CONFIG),
+            9103);
+
+    /**
+     * Value of the {@code deployment.environment} resource attribute, for example {@code prd} or {@code dev}.
+     */
+    public static final ConfigKey<String> METRICS_ENVIRONMENT = new StringConfigKey(
+            "metrics.environment",
+            List.of(KeyType.CONFIG));
+
 }

@@ -19,8 +19,15 @@ public class Transaction {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Transaction.class);
 
+    public static final String COMMITTED = "committed";
+    public static final String ROLLED_BACK = "rolled_back";
+    public static final String COMMIT_FAILED = "commit_failed";
+
+    private final long startNanos = System.nanoTime();
     private final List<Runnable> afterCommit = new ArrayList<>();
     private boolean rollbackOnly;
+    private String result;
+    private long commitNanos = -1;
 
     /** Restores the previous binding of the thread when closed. */
     public interface Scope extends AutoCloseable {
@@ -57,15 +64,21 @@ public class Transaction {
     public boolean finish() {
         if (rollbackOnly) {
             rollback();
+            result = ROLLED_BACK;
             return false;
         }
+        long start = System.nanoTime();
         try {
             commit();
         } catch (StorageException e) {
+            commitNanos = System.nanoTime() - start;
             LOGGER.warn("Transaction commit failed", e);
             rollback();
+            result = COMMIT_FAILED;
             return false;
         }
+        commitNanos = System.nanoTime() - start;
+        result = COMMITTED;
         for (Runnable action : afterCommit) {
             try {
                 action.run();
@@ -74,6 +87,21 @@ public class Transaction {
             }
         }
         return true;
+    }
+
+    /** {@link System#nanoTime} when the transaction started, its device locked. */
+    public long getStartNanos() {
+        return startNanos;
+    }
+
+    /** How {@link #finish} ended: {@link #COMMITTED}, {@link #ROLLED_BACK} or {@link #COMMIT_FAILED}. */
+    public String getResult() {
+        return result;
+    }
+
+    /** Duration of the commit in nanoseconds, or -1 when none was attempted. */
+    public long getCommitNanos() {
+        return commitNanos;
     }
 
     protected void commit() throws StorageException {

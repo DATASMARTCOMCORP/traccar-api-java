@@ -19,6 +19,7 @@ import com.google.inject.AbstractModule;
 import com.google.inject.Provides;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import io.opentelemetry.api.common.Attributes;
 import liquibase.Contexts;
 import liquibase.Liquibase;
 import liquibase.database.Database;
@@ -29,6 +30,7 @@ import liquibase.resource.DirectoryResourceAccessor;
 import liquibase.resource.ResourceAccessor;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
+import org.traccar.metrics.Metrics;
 
 import jakarta.inject.Singleton;
 import javax.sql.DataSource;
@@ -40,10 +42,30 @@ import java.nio.file.Path;
 
 public class DatabaseModule extends AbstractModule {
 
+    private static void registerPoolMetrics(Metrics metrics, HikariDataSource dataSource) {
+        var active = Attributes.of(Metrics.STATE, "active");
+        var idle = Attributes.of(Metrics.STATE, "idle");
+        metrics.gaugeWithAttributes("traccar.db.pool.connections", "{connection}",
+                "Database pool connections, in use (active) or idle", measurement -> {
+                    var pool = dataSource.getHikariPoolMXBean();
+                    if (pool != null) {
+                        measurement.record(pool.getActiveConnections(), active);
+                        measurement.record(pool.getIdleConnections(), idle);
+                    }
+                });
+        metrics.gauge("traccar.db.pool.pending", "{thread}",
+                "Threads waiting for a database pool connection", () -> {
+                    var pool = dataSource.getHikariPoolMXBean();
+                    return pool != null ? pool.getThreadsAwaitingConnection() : 0;
+                });
+        metrics.gauge("traccar.db.pool.max", "{connection}",
+                "Maximum size of the database pool", dataSource::getMaximumPoolSize);
+    }
+
     @Singleton
     @Provides
     public static DataSource provideDataSource(
-            Config config) throws ReflectiveOperationException, IOException, LiquibaseException {
+            Config config, Metrics metrics) throws ReflectiveOperationException, IOException, LiquibaseException {
 
         String driverFile = config.getString(Keys.DATABASE_DRIVER_FILE);
         if (driverFile != null) {
@@ -79,7 +101,8 @@ public class DatabaseModule extends AbstractModule {
         }
         hikariConfig.setMaximumPoolSize(config.getInteger(Keys.DATABASE_MAX_POOL_SIZE));
 
-        DataSource dataSource = new HikariDataSource(hikariConfig);
+        HikariDataSource dataSource = new HikariDataSource(hikariConfig);
+        registerPoolMetrics(metrics, dataSource);
 
         String changelog = config.getString(Keys.DATABASE_CHANGELOG);
         if (changelog != null && !changelog.isEmpty()) {
