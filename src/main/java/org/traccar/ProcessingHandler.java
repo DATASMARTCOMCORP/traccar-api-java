@@ -63,6 +63,7 @@ import org.traccar.handler.events.OverspeedEventHandler;
 import org.traccar.handler.events.ProximityEventHandler;
 import org.traccar.handler.network.AcknowledgementHandler;
 import org.traccar.helper.PositionLogger;
+import org.traccar.metrics.Metrics;
 import org.traccar.model.Event;
 import org.traccar.model.Position;
 import org.traccar.session.cache.CacheManager;
@@ -93,6 +94,7 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
     private final List<BasePositionHandler> positionHandlers;
     private final List<BaseEventHandler> eventHandlers;
     private final PostProcessHandler postProcessHandler;
+    private final Metrics metrics;
 
     private record QueuedPosition(ChannelHandlerContext ctx, Position position) {}
 
@@ -106,13 +108,16 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
     public ProcessingHandler(
             Injector injector, Config config,
             CacheManager cacheManager, Storage storage, NotificationManager notificationManager,
-            PositionLogger positionLogger) {
+            PositionLogger positionLogger, Metrics metrics) {
         this.cacheManager = cacheManager;
         this.storage = storage;
         this.notificationManager = notificationManager;
         this.positionLogger = positionLogger;
         bufferingManager = new BufferingManager(config, this);
         workers = new ProcessingWorkers(config);
+        this.metrics = metrics;
+        metrics.gauge("traccar.processing.pending", "{position}",
+                "Positions admitted to the processing workers and not finished yet", workers::pending);
 
         positionHandlers = Stream.of(
                 ReceiptHandler.class,
@@ -192,6 +197,7 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
     public void onReleased(ChannelHandlerContext context, Position position) {
         var worker = workers.of(position.getDeviceId());
         if (!worker.admit(context.channel())) {
+            metrics.positionSkipped("refused");
             fail(position, "busy");
             context.writeAndFlush(new AcknowledgementHandler.EventHandled(position));
             cacheManager.removeDevice(position.getDeviceId(), position);
@@ -215,10 +221,13 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
      */
     private void processPosition(ChannelHandlerContext ctx, Position position) {
         Transaction transaction;
+        long lockStart = System.nanoTime();
         try {
             transaction = storage.begin(position.getDeviceId());
+            metrics.lockAcquired(lockStart);
         } catch (StorageException e) {
             LOGGER.warn("Failed to lock device {}", position.getDeviceId(), e);
+            metrics.positionSkipped("lock_failed");
             fail(position, "lock");
             ctx.writeAndFlush(new AcknowledgementHandler.EventHandled(position));
             processNextPosition(position.getDeviceId());
@@ -286,6 +295,9 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
             }
         }
         boolean committed = transaction.finish();
+        metrics.transactionFinished(transaction.getResult(), transaction.getCommitNanos());
+        String outcome = !committed ? "failed" : filtered ? "filtered" : "stored";
+        metrics.positionProcessed(outcome, transaction.getStartNanos());
         settle(position, filtered, committed);
         if (committed && !filtered) {
             positionLogger.log(ctx, position);

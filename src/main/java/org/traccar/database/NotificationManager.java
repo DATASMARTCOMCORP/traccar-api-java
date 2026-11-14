@@ -24,6 +24,7 @@ import org.traccar.forward.EventData;
 import org.traccar.forward.EventForwarder;
 import org.traccar.geocoder.Geocoder;
 import org.traccar.helper.DateUtil;
+import org.traccar.metrics.Metrics;
 import org.traccar.model.Calendar;
 import org.traccar.model.Device;
 import org.traccar.model.Event;
@@ -61,6 +62,7 @@ public class NotificationManager {
     private final EventForwarder eventForwarder;
     private final NotificatorManager notificatorManager;
     private final Geocoder geocoder;
+    private final Metrics metrics;
 
     private final boolean geocodeOnRequest;
     private final long timeThreshold;
@@ -70,13 +72,14 @@ public class NotificationManager {
     public NotificationManager(
             Config config, Storage storage, OutboxStore outbox, CacheManager cacheManager,
             @Nullable EventForwarder eventForwarder,
-            NotificatorManager notificatorManager, @Nullable Geocoder geocoder) {
+            NotificatorManager notificatorManager, @Nullable Geocoder geocoder, Metrics metrics) {
         this.storage = storage;
         this.outbox = outbox;
         this.cacheManager = cacheManager;
         this.eventForwarder = eventForwarder;
         this.notificatorManager = notificatorManager;
         this.geocoder = geocoder;
+        this.metrics = metrics;
         geocodeOnRequest = config.getBoolean(Keys.GEOCODER_ON_REQUEST);
         timeThreshold = config.getLong(Keys.NOTIFICATOR_TIME_THRESHOLD);
         String blockedUsersString = config.getString(Keys.NOTIFICATION_BLOCK_USERS);
@@ -251,7 +254,9 @@ public class NotificationManager {
             if (event.getMaintenanceId() != 0) {
                 eventData.setMaintenance(cacheManager.getObject(Maintenance.class, event.getMaintenanceId()));
             }
+            long start = System.nanoTime();
             CompletableFuture<Void> result = eventForwarder.forward(eventData);
+            result.whenComplete((ignore, throwable) -> metrics.forwarded("event", start, throwable == null));
             result.exceptionally(throwable -> {
                 LOGGER.warn("Event forwarding failed", throwable);
                 return null;

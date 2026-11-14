@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
+import org.traccar.metrics.Metrics;
 import org.traccar.storage.Storage;
 import org.traccar.storage.StorageException;
 
@@ -51,10 +52,14 @@ public class OutboxStore {
     private final Semaphore slots;
 
     @Inject
-    public OutboxStore(Config config, Storage storage) {
+    public OutboxStore(Config config, Storage storage, Metrics metrics) {
         this.storage = storage;
         lease = config.getLong(Keys.OUTBOX_LEASE);
-        slots = new Semaphore(config.getInteger(Keys.OUTBOX_CONCURRENCY));
+        int concurrency = config.getInteger(Keys.OUTBOX_CONCURRENCY);
+        slots = new Semaphore(concurrency);
+        metrics.gauge("traccar.outbox.in_flight", "{delivery}",
+                "Outbox deliveries (forwarding, notifications) in progress on this server",
+                () -> concurrency - slots.availablePermits());
         long timeouts = config.getInteger(Keys.CLIENT_CONNECT_TIMEOUT) + config.getInteger(Keys.CLIENT_READ_TIMEOUT);
         if (lease <= timeouts) {
             LOGGER.warn("outbox.lease ({} ms) does not exceed the HTTP client timeouts ({} ms):"
